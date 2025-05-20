@@ -1,25 +1,15 @@
 package com.licenta.licentaclientapp.ui
 
 import android.Manifest
-import android.annotation.SuppressLint
-import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.location.LocationManager
 import android.net.Uri
-import android.os.Looper
 import android.provider.Settings
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -27,163 +17,20 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.navigation.NavController
 import androidx.navigation.NavHostController
-import com.google.android.gms.location.*
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import com.google.maps.android.compose.*
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlin.coroutines.resume
-
-// Location request for getting current location
-private val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 10000)
-    .setWaitForAccurateLocation(false)
-    .setMinUpdateIntervalMillis(5000)
-    .setMaxUpdateDelayMillis(10000)
-    .build()
-
-// Function to check if location services are enabled
-fun isLocationEnabled(context: Context): Boolean {
-    val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-    return locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
-            locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
-}
-
-// Improved function to fetch location
-@SuppressLint("MissingPermission")
-fun fetchLocation(
-    context: Context,
-    scope: kotlinx.coroutines.CoroutineScope,
-    setLoading: (Boolean) -> Unit,
-    callback: (LatLng?) -> Unit
-) {
-    setLoading(true)
-
-    // First check if location services are enabled
-    if (!isLocationEnabled(context)) {
-        Log.d("LocationFetch", "Location services disabled")
-        setLoading(false)
-        callback(null)
-        return
-    }
-
-    // Check permissions
-    if (ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.ACCESS_FINE_LOCATION
-        ) != PackageManager.PERMISSION_GRANTED &&
-        ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.ACCESS_COARSE_LOCATION
-        ) != PackageManager.PERMISSION_GRANTED
-    ) {
-        Log.d("LocationFetch", "Permission not granted")
-        setLoading(false)
-        callback(null)
-        return
-    }
-
-    scope.launch {
-        try {
-            // First try to get current location
-            val location = getCurrentLocation(context)
-            if (location != null) {
-                Log.d("LocationFetch", "Current location fetched: $location")
-                callback(location)
-                setLoading(false)
-                return@launch
-            }
-
-            // If current location fails, fall back to last known location
-            val lastLocation = getLastKnownLocation(context)
-            Log.d("LocationFetch", "Last known location fetched: $lastLocation")
-            callback(lastLocation)
-        } catch (e: Exception) {
-            Log.e("LocationFetch", "Error fetching location", e)
-            callback(null)
-        } finally {
-            setLoading(false)
-        }
-    }
-}
-
-// Function to get the current location
-@SuppressLint("MissingPermission")
-suspend fun getCurrentLocation(context: Context): LatLng? {
-    val fusedClient = LocationServices.getFusedLocationProviderClient(context)
-
-    return suspendCancellableCoroutine { cont ->
-        try {
-            val locationCallback = object : LocationCallback() {
-                override fun onLocationResult(result: LocationResult) {
-                    fusedClient.removeLocationUpdates(this)
-                    val location = result.lastLocation
-                    if (location != null) {
-                        cont.resume(LatLng(location.latitude, location.longitude))
-                    } else {
-                        cont.resume(null)
-                    }
-                }
-            }
-
-            fusedClient.requestLocationUpdates(
-                locationRequest,
-                locationCallback,
-                Looper.getMainLooper()
-            )
-
-            // Set a timeout
-            cont.invokeOnCancellation {
-                fusedClient.removeLocationUpdates(locationCallback)
-            }
-
-        } catch (e: Exception) {
-            Log.e("Location", "Exception in current location fetch", e)
-            cont.resume(null)
-        }
-    }
-}
-
-// Improved function to get last known location
-@SuppressLint("MissingPermission")
-suspend fun getLastKnownLocation(context: Context): LatLng? {
-    val fusedClient = LocationServices.getFusedLocationProviderClient(context)
-    return suspendCancellableCoroutine { cont ->
-        try {
-            fusedClient.lastLocation
-                .addOnSuccessListener { location ->
-                    if (location != null) {
-                        cont.resume(LatLng(location.latitude, location.longitude))
-                    } else {
-                        Log.d("Location", "Last location was null")
-                        cont.resume(null)
-                    }
-                }
-                .addOnFailureListener { e ->
-                    Log.e("Location", "Failed to get last location", e)
-                    cont.resume(null)
-                }
-
-        } catch (e: Exception) {
-            Log.e("Location", "Exception in last location fetch", e)
-            cont.resume(null)
-        }
-    }
-}
 
 @Composable
 fun HomeScreen(
@@ -603,8 +450,6 @@ fun TopBar(onLogout: () -> Unit, navController: NavController) {
     }
 }
 
-
-
 @Composable
 fun SavedAddresses() {
     Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
@@ -650,163 +495,6 @@ fun AddDebitCardButton(navController: NavController) {
             shape = RoundedCornerShape(12.dp)
         ) {
             Text("Add Debit Card", fontSize = 16.sp, modifier = Modifier.padding(8.dp))
-        }
-    }
-}
-
-
-// New ProfileScreen component
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun ProfileScreen(navController: NavHostController) {
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("My Profile") },
-                navigationIcon = {
-                    IconButton(onClick = { navController.navigateUp() }) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-                    }
-                }
-            )
-        }
-    ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            // Profile Picture
-            Box(
-                modifier = Modifier
-                    .padding(vertical = 24.dp)
-                    .size(120.dp)
-                    .clip(CircleShape)
-                    .background(Color.LightGray)
-                    .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                // You can replace this with an actual image when available
-                Icon(
-                    imageVector = Icons.Default.Person,
-                    contentDescription = "Profile Picture",
-                    modifier = Modifier.size(64.dp),
-                    tint = Color.White
-                )
-
-                // For an actual image, you would use:
-                // Image(
-                //     painter = painterResource(id = R.drawable.profile_picture),
-                //     contentDescription = "Profile Picture",
-                //     modifier = Modifier.fillMaxSize(),
-                //     contentScale = ContentScale.Crop
-                // )
-            }
-
-            // User details
-            Text(
-                text = "John Doe", // Replace with actual user name
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(bottom = 8.dp)
-            )
-
-            Text(
-                text = "john.doe@example.com", // Replace with actual email
-                fontSize = 16.sp,
-                color = Color.Gray,
-                modifier = Modifier.padding(bottom = 32.dp)
-            )
-
-            // Delivery History header
-            Text(
-                text = "Delivery History",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 16.dp),
-                textAlign = TextAlign.Left
-            )
-
-            // Sample delivery history
-            // In a real app, this would come from a database or API
-            val deliveryHistory = remember {
-                listOf(
-                    DeliveryHistoryItem("Package #12345", "May 10, 2025", "Delivered"),
-                    DeliveryHistoryItem("Package #12344", "May 5, 2025", "Delivered"),
-                    DeliveryHistoryItem("Package #12343", "April 28, 2025", "Delivered"),
-                    DeliveryHistoryItem("Package #12342", "April 15, 2025", "Delivered"),
-                    DeliveryHistoryItem("Package #12341", "April 2, 2025", "Delivered")
-                )
-            }
-
-            // Display delivery history
-            LazyColumn {
-                items(deliveryHistory) { delivery ->
-                    DeliveryHistoryItemCard(delivery)
-                }
-            }
-        }
-    }
-}
-
-// Data class for delivery history items
-data class DeliveryHistoryItem(
-    val id: String,
-    val date: String,
-    val status: String
-)
-
-// UI component for a delivery history item
-@Composable
-fun DeliveryHistoryItemCard(delivery: DeliveryHistoryItem) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp),
-        shape = RoundedCornerShape(8.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column {
-                Text(
-                    text = delivery.id,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = delivery.date,
-                    color = Color.Gray,
-                    fontSize = 14.sp
-                )
-            }
-
-            // Status chip
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(
-                        when (delivery.status) {
-                            "Delivered" -> Color(0xFF4CAF50)
-                            "In Transit" -> Color(0xFF2196F3)
-                            else -> Color(0xFFFF9800)
-                        }
-                    )
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
-            ) {
-                Text(
-                    text = delivery.status,
-                    color = Color.White,
-                    fontSize = 12.sp
-                )
-            }
         }
     }
 }
