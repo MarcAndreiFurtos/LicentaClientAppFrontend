@@ -103,11 +103,14 @@ class Auth0Manager(context: Context) {
                             val name = result.user.name ?: ""
                             val pictureUrl = result.user.pictureURL ?: ""
 
+                            // Extract first name from full name (simple approach)
+                            val firstName = name.split(" ").firstOrNull() ?: ""
+
                             Log.d(TAG, "User profile retrieved: $name, $email")
 
                             // Update the state on the main thread
                             CoroutineScope(Dispatchers.Main).launch {
-                                val profile = UserProfile(email, name, pictureUrl)
+                                val profile = UserProfile(email, name, firstName, pictureUrl)
                                 _userProfile.value = profile
                                 _isAuthenticated.value = true
                                 _isLoading.value = false
@@ -219,5 +222,6 @@ class Auth0Manager(context: Context) {
 data class UserProfile(
     val email: String,
     val name: String,
+    val firstName: String,
     val pictureUrl: String
 )

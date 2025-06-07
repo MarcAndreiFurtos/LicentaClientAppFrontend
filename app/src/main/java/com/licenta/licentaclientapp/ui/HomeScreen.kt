@@ -31,6 +31,47 @@ import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import com.google.maps.android.compose.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.net.HttpURLConnection
+import java.net.URL
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import org.json.JSONObject
+import javax.net.ssl.HttpsURLConnection
+import javax.net.ssl.SSLContext
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
+import java.security.cert.X509Certificate
+import javax.net.ssl.HostnameVerifier
+
+// Data class for User
+data class User(
+    val email: String,
+    val firstName: String,
+    val lastName: String,
+    val connectedAccount: String
+)
+
+// Configure SSL for development - moved to top level
+private fun configureSSLForDevelopment(httpsConnection: HttpsURLConnection) {
+    try {
+        val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
+            override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
+            override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
+            override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+        })
+
+        val sslContext = SSLContext.getInstance("SSL")
+        sslContext.init(null, trustAllCerts, java.security.SecureRandom())
+        httpsConnection.sslSocketFactory = sslContext.socketFactory
+        httpsConnection.hostnameVerifier = HostnameVerifier { _, _ -> true }
+
+        Log.d("HomeScreen", "SSL configured for development")
+    } catch (e: Exception) {
+        Log.e("HomeScreen", "Error configuring SSL", e)
+    }
+}
 
 @Composable
 fun HomeScreen(
@@ -70,6 +111,11 @@ fun HomeScreen(
     var deviceLocation by remember { mutableStateOf<LatLng?>(null) }
     var isLoadingLocation by remember { mutableStateOf(false) }
 
+    // Stripe connected account state
+    var user by remember { mutableStateOf<User?>(null) }
+    var isLoadingUser by remember { mutableStateOf(false) }
+    var userLoadError by remember { mutableStateOf<String?>(null) }
+
     // Permission launcher
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -95,6 +141,51 @@ fun HomeScreen(
                 // Show dialog to enable location services
                 showLocationServicesDialog = true
             }
+        }
+    }
+
+    // Function to fetch user data
+    suspend fun fetchUserData(email: String): User? = withContext(Dispatchers.IO) {
+        try {
+            val url = URL("https://10.0.2.2:8443/api/users/email/$email")
+            Log.d(TAG, "Fetching user data from: $url")
+
+            val connection = url.openConnection() as HttpURLConnection
+
+            // Configure SSL if HTTPS
+            if (connection is HttpsURLConnection) {
+                configureSSLForDevelopment(connection)
+            }
+
+            connection.apply {
+                requestMethod = "GET"
+                connectTimeout = 15000
+                readTimeout = 15000
+                setRequestProperty("Accept", "application/json")
+            }
+
+            val responseCode = connection.responseCode
+            Log.d(TAG, "User API Response code: $responseCode")
+
+            if (responseCode == HttpURLConnection.HTTP_OK) {
+                val reader = BufferedReader(InputStreamReader(connection.inputStream))
+                val response = reader.use { it.readText() }
+                Log.d(TAG, "User data received: $response")
+
+                val jsonObject = JSONObject(response)
+                User(
+                    email = jsonObject.getString("email"),
+                    firstName = jsonObject.getString("firstName"),
+                    lastName = jsonObject.getString("lastName"),
+                    connectedAccount = jsonObject.optString("connectedAccount", "")
+                )
+            } else {
+                Log.e(TAG, "Failed to fetch user data: HTTP $responseCode")
+                null
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching user data", e)
+            null
         }
     }
 
@@ -156,6 +247,22 @@ fun HomeScreen(
             showLocationServicesDialog = true
         } else if (!hasLocationPermission) {
             showPermissionDialog = true
+        }
+
+        // Fetch user data
+        authViewModel.userProfile.collect { userProfile ->
+            if (userProfile != null && user == null && !isLoadingUser) {
+                isLoadingUser = true
+                userLoadError = null
+
+                val userData = fetchUserData(userProfile.email ?: "")
+                user = userData
+                isLoadingUser = false
+
+                if (userData == null) {
+                    userLoadError = "Failed to load user data"
+                }
+            }
         }
     }
 
@@ -252,7 +359,14 @@ fun HomeScreen(
         ) {
             // Updated to use our clickable LocationSearchBar
             LocationSearchBar(navController)
-            SavedAddresses()
+
+            // Replace SavedAddresses with StripeConnectedAccount
+            StripeConnectedAccount(
+                user = user,
+                isLoading = isLoadingUser,
+                error = userLoadError
+            )
+
             AddDebitCardButton(navController)
 
             Box(
@@ -389,6 +503,140 @@ fun HomeScreen(
 }
 
 @Composable
+fun StripeConnectedAccount(
+    user: User?,
+    isLoading: Boolean,
+    error: String?
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(
+                    imageVector = Icons.Default.AccountBalance,
+                    contentDescription = "Payment Account",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
+                )
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Payment Account",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    when {
+                        isLoading -> {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(top = 4.dp)
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Loading payment information...",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                    fontSize = 14.sp
+                                )
+                            }
+                        }
+
+                        error != null -> {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(top = 4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Error,
+                                    contentDescription = "Error",
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = error,
+                                    color = MaterialTheme.colorScheme.error,
+                                    fontSize = 14.sp
+                                )
+                            }
+                        }
+
+                        user != null -> {
+                            if (user.connectedAccount.isNotEmpty()) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(top = 4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CheckCircle,
+                                        contentDescription = "Connected",
+                                        tint = Color(0xFF4CAF50), // Green color
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Stripe Account: ${user.connectedAccount}",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontSize = 14.sp
+                                    )
+                                }
+                            } else {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(top = 4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Warning,
+                                        contentDescription = "Not Connected",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "You do not have a Stripe connected account yet",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                        fontSize = 14.sp
+                                    )
+                                }
+                            }
+                        }
+
+                        else -> {
+                            Text(
+                                text = "Payment information unavailable",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                fontSize = 14.sp,
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun TopBar(onLogout: () -> Unit, navController: NavController) {
     var showMenu by remember { mutableStateOf(false) }
 
@@ -451,35 +699,6 @@ fun TopBar(onLogout: () -> Unit, navController: NavController) {
 }
 
 @Composable
-fun SavedAddresses() {
-    Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-        SavedAddressItem("Home", "123 Main Street")
-        SavedAddressItem("Work", "456 Office Rd")
-    }
-}
-
-@Composable
-fun SavedAddressItem(title: String, address: String) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(
-            imageVector = Icons.Default.Place,
-            contentDescription = null,
-            tint = Color.Gray,
-            modifier = Modifier.size(24.dp)
-        )
-        Column(Modifier.padding(start = 8.dp)) {
-            Text(text = title, fontWeight = FontWeight.Bold)
-            Text(text = address, color = Color.Gray, fontSize = 12.sp)
-        }
-    }
-}
-
-@Composable
 fun AddDebitCardButton(navController: NavController) {
     Box(
         Modifier
@@ -494,7 +713,7 @@ fun AddDebitCardButton(navController: NavController) {
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp)
         ) {
-            Text("Add Debit Card", fontSize = 16.sp, modifier = Modifier.padding(8.dp))
+            Text("Add Connected Account", fontSize = 16.sp, modifier = Modifier.padding(8.dp))
         }
     }
 }

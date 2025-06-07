@@ -1,5 +1,7 @@
 package com.licenta.licentaclientapp.ui
+
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -19,6 +21,19 @@ fun AppNavigation(
     // Observe authentication state
     val isAuthenticated by authViewModel.isAuthenticated.collectAsState()
     val userProfile by authViewModel.userProfile.collectAsState()
+    val shouldNavigateToRegistration by authViewModel.shouldNavigateToRegistration.collectAsState()
+
+    // Handle 404 navigation
+    LaunchedEffect(shouldNavigateToRegistration) {
+        if (shouldNavigateToRegistration) {
+            navController.navigate("registration_screen") {
+                // Don't pop the current screen, so user can go back if needed
+                launchSingleTop = true
+            }
+            // Clear the navigation flag after handling
+            authViewModel.clearNavigationToRegistration()
+        }
+    }
 
     NavHost(navController = navController, startDestination = "splash_screen") {
         // Splash screen - entry point
@@ -38,6 +53,7 @@ fun AppNavigation(
                 }
             )
         }
+
         // Login screen
         composable("login_screen") {
             LoginScreen(
@@ -50,6 +66,25 @@ fun AppNavigation(
                 }
             )
         }
+
+        // Registration screen
+        composable("registration_screen") {
+            RegistrationScreen(
+                authViewModel = authViewModel,
+                onRegistrationComplete = {
+                    // After successful registration, navigate back to home screen
+                    // since the user is already authenticated with Auth0
+                    navController.navigate("home_screen") {
+                        popUpTo("registration_screen") { inclusive = true }
+                    }
+                },
+                onBackPressed = {
+                    // Navigate back to previous screen (could be login or home)
+                    navController.popBackStack()
+                }
+            )
+        }
+
         // Home screen
         composable("home_screen") {
             // Remove the conditional redirect that's causing the loop
@@ -64,6 +99,7 @@ fun AppNavigation(
                 }
             )
         }
+
         // Debit card screen
         composable("debit_card_screen") {
             DebitCardScreen(
@@ -76,7 +112,8 @@ fun AppNavigation(
                 }
             )
         }
-        // Profile screen - new route
+
+        // Profile screen - remove authViewModel parameter since it's not expected
         composable("profile_screen") {
             ProfileScreen(
                 navController = navController
