@@ -37,6 +37,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.io.BufferedReader
 import java.io.InputStreamReader
+import java.io.OutputStreamWriter
 import org.json.JSONObject
 import javax.net.ssl.HttpsURLConnection
 import javax.net.ssl.SSLContext
@@ -47,6 +48,7 @@ import javax.net.ssl.HostnameVerifier
 
 // Data class for User
 data class User(
+    val id: Long? = null, // Add user ID field
     val email: String,
     val firstName: String,
     val lastName: String,
@@ -115,6 +117,8 @@ fun HomeScreen(
     var user by remember { mutableStateOf<User?>(null) }
     var isLoadingUser by remember { mutableStateOf(false) }
     var userLoadError by remember { mutableStateOf<String?>(null) }
+    var isLoadingStripe by remember { mutableStateOf(false) }
+    var stripeError by remember { mutableStateOf<String?>(null) }
 
     // Permission launcher
     val locationPermissionLauncher = rememberLauncherForActivityResult(
@@ -174,6 +178,7 @@ fun HomeScreen(
 
                 val jsonObject = JSONObject(response)
                 User(
+                    id = jsonObject.optLong("id", -1L).takeIf { it != -1L }, // Handle user ID
                     email = jsonObject.getString("email"),
                     firstName = jsonObject.getString("firstName"),
                     lastName = jsonObject.getString("lastName"),
@@ -186,6 +191,152 @@ fun HomeScreen(
         } catch (e: Exception) {
             Log.e(TAG, "Error fetching user data", e)
             null
+        }
+    }
+
+    // Function to initiate Stripe Connect
+    // Function to initiate Stripe Connect
+    suspend fun initiateStripeConnect(userId: Long): String? = withContext(Dispatchers.IO) {
+        try {
+            // Step 1: POST to create Stripe account
+            val postUrl = URL("https://10.0.2.2:8443/api/stripe/$userId")
+            Log.d(TAG, "Creating Stripe account: $postUrl")
+
+            val postConnection = postUrl.openConnection() as HttpURLConnection
+
+            if (postConnection is HttpsURLConnection) {
+                configureSSLForDevelopment(postConnection)
+            }
+
+            postConnection.apply {
+                requestMethod = "POST"
+                connectTimeout = 15000
+                readTimeout = 15000
+                setRequestProperty("Content-Type", "application/json")
+                setRequestProperty("Accept", "application/json")
+                doOutput = true
+            }
+
+            val postResponseCode = postConnection.responseCode
+            Log.d(TAG, "Stripe POST Response code: $postResponseCode")
+
+            if (postResponseCode == HttpURLConnection.HTTP_OK) {
+                // Read the account ID from the first call
+                val accountReader = BufferedReader(InputStreamReader(postConnection.inputStream))
+                val accountIdResponse = accountReader.use { it.readText() }
+                Log.d(TAG, "Stripe account ID response: $accountIdResponse")
+
+                // Clean the account ID (remove quotes if it's a quoted string)
+                val accountId = accountIdResponse.trim().removeSurrounding("\"")
+                Log.d(TAG, "Stripe account ID: $accountId")
+
+                // Step 2: PUT to get the account link using the account ID
+                val putUrl = URL("https://10.0.2.2:8443/api/stripe/$userId")
+                Log.d(TAG, "Getting Stripe account link with PUT: $putUrl")
+
+                val putConnection = putUrl.openConnection() as HttpURLConnection
+
+                if (putConnection is HttpsURLConnection) {
+                    configureSSLForDevelopment(putConnection)
+                }
+
+                // Create JSON payload for PUT request body
+                val jsonPayload = JSONObject().apply {
+                    put("returnUrl", "https://connect.stripe.com/hosted/setup/c/complete") // Replace with your actual domain
+                    put("refreshUrl", "https://connect.stripe.com/hosted/setup/c/complete") // Replace with your actual domain
+                }
+
+                putConnection.apply {
+                    requestMethod = "PUT"
+                    connectTimeout = 15000
+                    readTimeout = 15000
+                    setRequestProperty("Content-Type", "application/json")
+                    setRequestProperty("Accept", "application/json")
+                    doOutput = true
+                }
+
+                // Write JSON payload to PUT request
+                val writer = OutputStreamWriter(putConnection.outputStream)
+                writer.write(jsonPayload.toString())
+                writer.flush()
+                writer.close()
+
+                val putResponseCode = putConnection.responseCode
+                Log.d(TAG, "Stripe PUT Response code: $putResponseCode")
+
+                if (putResponseCode == HttpURLConnection.HTTP_OK) {
+                    val reader = BufferedReader(InputStreamReader(putConnection.inputStream))
+                    val response = reader.use { it.readText() }
+                    Log.d(TAG, "Stripe link response: $response")
+
+                    // Handle the response from the second call (should be the onboarding URL)
+                    return@withContext try {
+                        // Try to parse as JSON object first
+                        val jsonObject = JSONObject(response)
+                        jsonObject.optString("url", null)
+                    } catch (e: org.json.JSONException) {
+                        // If it's not a JSON object, treat it as a plain URL string
+                        Log.d(TAG, "Response is not JSON, treating as plain URL string")
+
+                        val cleanResponse = response.trim().removeSurrounding("\"")
+
+                        // Check if it looks like a valid URL
+                        if (cleanResponse.startsWith("http")) {
+                            cleanResponse
+                        } else {
+                            Log.e(TAG, "Expected URL but got: $cleanResponse")
+                            null
+                        }
+                    }
+                } else {
+                    val errorReader = BufferedReader(InputStreamReader(putConnection.errorStream ?: putConnection.inputStream))
+                    val errorResponse = errorReader.use { it.readText() }
+                    Log.e(TAG, "Failed to get Stripe link: HTTP $putResponseCode - $errorResponse")
+                    return@withContext null
+                }
+            } else {
+                val errorReader = BufferedReader(InputStreamReader(postConnection.errorStream ?: postConnection.inputStream))
+                val errorResponse = errorReader.use { it.readText() }
+                Log.e(TAG, "Failed to create Stripe account: HTTP $postResponseCode - $errorResponse")
+                return@withContext null
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error initiating Stripe Connect", e)
+            return@withContext null
+        }
+    }
+
+    // Function to handle Add Connected Account button click
+    fun handleAddConnectedAccount() {
+        val currentUser = user
+        if (currentUser?.id == null) {
+            stripeError = "User ID not available. Please try logging out and back in."
+            return
+        }
+
+        isLoadingStripe = true
+        stripeError = null
+
+        scope.launch {
+            try {
+                val stripeUrl = initiateStripeConnect(currentUser.id)
+
+                if (stripeUrl != null) {
+                    // Open Stripe Connect URL in browser
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(stripeUrl))
+                    context.startActivity(intent)
+
+                    // Optionally refresh user data after some time
+                    // This might be handled better with a callback or webhook
+                } else {
+                    stripeError = "Failed to initiate Stripe Connect. Please try again."
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error handling Stripe Connect", e)
+                stripeError = "An error occurred: ${e.message}"
+            } finally {
+                isLoadingStripe = false
+            }
         }
     }
 
@@ -336,6 +487,22 @@ fun HomeScreen(
         )
     }
 
+    // Stripe error dialog
+    if (stripeError != null) {
+        AlertDialog(
+            onDismissRequest = { stripeError = null },
+            title = { Text("Stripe Connect Error") },
+            text = { Text(stripeError!!) },
+            confirmButton = {
+                Button(
+                    onClick = { stripeError = null }
+                ) {
+                    Text("OK")
+                }
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopBar(
@@ -367,7 +534,10 @@ fun HomeScreen(
                 error = userLoadError
             )
 
-            AddDebitCardButton(navController)
+            AddDebitCardButton(
+                isLoading = isLoadingStripe,
+                onClick = { handleAddConnectedAccount() }
+            )
 
             Box(
                 Modifier
@@ -699,21 +869,37 @@ fun TopBar(onLogout: () -> Unit, navController: NavController) {
 }
 
 @Composable
-fun AddDebitCardButton(navController: NavController) {
+fun AddDebitCardButton(
+    isLoading: Boolean = false,
+    onClick: () -> Unit
+) {
     Box(
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
         Button(
-            onClick = {
-                // Navigate to DebitCardScreen
-                navController.navigate("debit_card_screen")
-            },
+            onClick = onClick,
+            enabled = !isLoading,
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp)
         ) {
-            Text("Add Connected Account", fontSize = 16.sp, modifier = Modifier.padding(8.dp))
+            if (isLoading) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Setting up Stripe Connect...", fontSize = 16.sp)
+                }
+            } else {
+                Text("Add Connected Account", fontSize = 16.sp, modifier = Modifier.padding(8.dp))
+            }
         }
     }
 }

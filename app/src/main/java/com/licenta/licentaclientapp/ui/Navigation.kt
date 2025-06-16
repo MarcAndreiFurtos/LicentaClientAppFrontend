@@ -113,17 +113,38 @@ fun AppNavigation(
             )
         }
 
-        // Profile screen - remove authViewModel parameter since it's not expected
+        // Profile screen
         composable("profile_screen") {
             ProfileScreen(
-                navController = navController
+                navController = navController,
+                authViewModel = authViewModel
             )
         }
 
         // Add the pickup address screen with the required functionality
         composable("pickup_address_screen") {
             PickupAddressScreen(
-                navController = navController
+                navController = navController,
+                authViewModel = authViewModel,
+                cardViewModel = cardViewModel
+            )
+        }
+
+        // Pickup loading screen - handles the polling of pickup status
+        composable("pickup_loading_screen/{pickupId}") { backStackEntry ->
+            val pickupId = backStackEntry.arguments?.getString("pickupId")?.toLongOrNull() ?: 0L
+            PickupLoadingScreen(
+                navController = navController,
+                pickupId = pickupId
+            )
+        }
+
+        // Pickup completed screen - shows success message
+        composable("pickup_completed_screen/{pickupId}") { backStackEntry ->
+            val pickupId = backStackEntry.arguments?.getString("pickupId")?.toLongOrNull() ?: 0L
+            PickupCompletedScreen(
+                navController = navController,
+                pickupId = pickupId
             )
         }
     }

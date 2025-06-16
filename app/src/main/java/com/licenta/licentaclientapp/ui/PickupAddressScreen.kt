@@ -44,12 +44,66 @@ import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import com.google.maps.android.compose.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.net.HttpURLConnection
+import java.net.URL
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.io.OutputStreamWriter
+import org.json.JSONObject
+import javax.net.ssl.HttpsURLConnection
+import javax.net.ssl.SSLContext
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
+import java.security.cert.X509Certificate
+import javax.net.ssl.HostnameVerifier
 import java.util.*
+
+// Data classes for the API requests/responses
+data class PickupRequest(
+    val userId: Long,
+    val driverLocation: String,
+    val pickupLocation: String,
+    val sackSizeLiters: Int
+)
+
+data class PickupResponse(
+    val id: Long,
+    val status: String,
+    val user: User, // Changed from userId to user object
+    val driverLocation: String,
+    val pickupLocation: String,
+) {
+    // Helper property to get userId from the user object
+    val userId: Long get() = user.id ?: -1L
+}
+
+// Configure SSL for development
+private fun configureSSLForDevelopment(httpsConnection: HttpsURLConnection) {
+    try {
+        val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
+            override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
+            override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
+            override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+        })
+
+        val sslContext = SSLContext.getInstance("SSL")
+        sslContext.init(null, trustAllCerts, java.security.SecureRandom())
+        httpsConnection.sslSocketFactory = sslContext.socketFactory
+        httpsConnection.hostnameVerifier = HostnameVerifier { _, _ -> true }
+
+        Log.d("PickupAddressScreen", "SSL configured for development")
+    } catch (e: Exception) {
+        Log.e("PickupAddressScreen", "Error configuring SSL", e)
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PickupAddressScreen(
     navController: NavController,
+    authViewModel: AuthViewModel,
     // Use the existing CardViewModel from the app
     cardViewModel: CardViewModel? = null
 ) {
@@ -63,7 +117,11 @@ fun PickupAddressScreen(
     var sackSize by remember { mutableStateOf("60") }
     var isAddressConfirmed by remember { mutableStateOf(true) }
     var currentAddress by remember { mutableStateOf("Loading location...") }
-    var selectedCardIndex by remember { mutableStateOf(0) }
+
+    // API related state
+    var isSubmittingPickup by remember { mutableStateOf(false) }
+    var submitError by remember { mutableStateOf<String?>(null) }
+    var user by remember { mutableStateOf<User?>(null) }
 
     // Location-related state
     var hasLocationPermission by remember {
@@ -120,6 +178,329 @@ fun PickupAddressScreen(
             } else {
                 // Show dialog to enable location services
                 showLocationServicesDialog = true
+            }
+        }
+    }
+    suspend fun submitPickupRequest(pickupRequest: PickupRequest): PickupResponse? = withContext(Dispatchers.IO) {
+        var attempt = 0
+        val maxRetries = 3
+        val baseDelay = 2000L // 2 seconds
+
+        while (attempt < maxRetries) {
+            try {
+                attempt++
+                Log.d(TAG, "Submitting pickup request (attempt $attempt/$maxRetries)")
+
+                val url = URL("https://10.0.2.2:8443/api/sgrPickup")
+                val connection = url.openConnection() as HttpURLConnection
+
+                if (connection is HttpsURLConnection) {
+                    configureSSLForDevelopment(connection)
+                }
+
+                // Create JSON payload
+                val jsonPayload = JSONObject().apply {
+                    put("userId", pickupRequest.userId)
+                    put("driverLocation", pickupRequest.driverLocation)
+                    put("pickupLocation", pickupRequest.pickupLocation)
+                    put("sackSizeLiters", pickupRequest.sackSizeLiters)
+                }
+
+                connection.apply {
+                    requestMethod = "POST"
+                    // Increase timeout values
+                    connectTimeout = 30000  // 30 seconds
+                    readTimeout = 30000     // 30 seconds
+                    setRequestProperty("Content-Type", "application/json")
+                    setRequestProperty("Accept", "application/json")
+                    setRequestProperty("Connection", "close") // Prevent connection reuse issues
+                    doOutput = true
+                    useCaches = false
+                }
+
+                // Write JSON payload
+                connection.outputStream.use { outputStream ->
+                    OutputStreamWriter(outputStream, "UTF-8").use { writer ->
+                        writer.write(jsonPayload.toString())
+                        writer.flush()
+                    }
+                }
+
+                val responseCode = connection.responseCode
+                Log.d(TAG, "Pickup submission response code: $responseCode (attempt $attempt)")
+
+                when (responseCode) {
+                    HttpURLConnection.HTTP_OK, HttpURLConnection.HTTP_CREATED -> {
+                        val response = connection.inputStream.use { inputStream ->
+                            BufferedReader(InputStreamReader(inputStream, "UTF-8")).use { reader ->
+                                reader.readText()
+                            }
+                        }
+                        Log.d(TAG, "Pickup response: $response")
+
+                        // Updated response parsing with defensive handling
+                        val jsonObject = JSONObject(response)
+
+                        // Try to get userId directly first, then fall back to user.id
+                        val userId = when {
+                            jsonObject.has("userId") -> jsonObject.getLong("userId")
+                            jsonObject.has("user") -> {
+                                val userObject = jsonObject.getJSONObject("user")
+                                userObject.optLong("id", -1L)
+                            }
+                            else -> -1L
+                        }
+
+                        // For the user object, either parse it or reconstruct from existing data
+                        val user = when {
+                            jsonObject.has("user") -> {
+                                val userObject = jsonObject.getJSONObject("user")
+                                User(
+                                    id = userObject.optLong("id", -1L).takeIf { it != -1L },
+                                    email = userObject.optString("email", ""),
+                                    firstName = userObject.optString("firstName", ""),
+                                    lastName = userObject.optString("lastName", ""),
+                                    connectedAccount = userObject.optString("connectedAccount", "")
+                                )
+                            }
+                            else -> {
+                                // If no user object, create one with just the ID
+                                User(
+                                    id = userId.takeIf { it != -1L },
+                                    email = "",
+                                    firstName = "",
+                                    lastName = "",
+                                    connectedAccount = ""
+                                )
+                            }
+                        }
+
+                        return@withContext PickupResponse(
+                            id = jsonObject.getLong("id"),
+                            status = jsonObject.getString("status"),
+                            user = user,
+                            driverLocation = jsonObject.getString("driverLocation"),
+                            pickupLocation = jsonObject.getString("pickupLocation")
+                        )
+                    }
+                    else -> {
+                        val errorResponse = try {
+                            connection.errorStream?.use { errorStream ->
+                                BufferedReader(InputStreamReader(errorStream, "UTF-8")).use { reader ->
+                                    reader.readText()
+                                }
+                            } ?: "No error details available"
+                        } catch (e: Exception) {
+                            "Error reading error response: ${e.message}"
+                        }
+
+                        Log.e(TAG, "HTTP Error $responseCode (attempt $attempt): $errorResponse")
+
+                        // Don't retry for client errors (4xx)
+                        if (responseCode in 400..499) {
+                            Log.e(TAG, "Client error, not retrying")
+                            return@withContext null
+                        }
+
+                        // Retry for server errors (5xx) and other issues
+                        if (attempt < maxRetries) {
+                            val delay = baseDelay * attempt
+                            Log.d(TAG, "Retrying in ${delay}ms...")
+                            kotlinx.coroutines.delay(delay)
+                            continue
+                        }
+                    }
+                }
+
+            } catch (e: java.net.SocketTimeoutException) {
+                Log.e(TAG, "Socket timeout on attempt $attempt", e)
+
+                if (attempt < maxRetries) {
+                    val delay = baseDelay * attempt
+                    Log.d(TAG, "Timeout occurred, retrying in ${delay}ms...")
+                    kotlinx.coroutines.delay(delay)
+                    continue
+                } else {
+                    Log.e(TAG, "All retry attempts exhausted due to timeout")
+                    throw Exception("Connection timeout after $maxRetries attempts. Please check your internet connection and try again.")
+                }
+
+            } catch (e: java.net.ConnectException) {
+                Log.e(TAG, "Connection failed on attempt $attempt", e)
+
+                if (attempt < maxRetries) {
+                    val delay = baseDelay * attempt
+                    Log.d(TAG, "Connection failed, retrying in ${delay}ms...")
+                    kotlinx.coroutines.delay(delay)
+                    continue
+                } else {
+                    Log.e(TAG, "All retry attempts exhausted due to connection failure")
+                    throw Exception("Unable to connect to server after $maxRetries attempts. Please check if the server is running.")
+                }
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Unexpected error on attempt $attempt", e)
+
+                // For unexpected errors, only retry if it's not the last attempt
+                if (attempt < maxRetries && (e is java.io.IOException || e is javax.net.ssl.SSLException)) {
+                    val delay = baseDelay * attempt
+                    Log.d(TAG, "Unexpected error, retrying in ${delay}ms...")
+                    kotlinx.coroutines.delay(delay)
+                    continue
+                } else {
+                    throw Exception("Request failed: ${e.localizedMessage ?: e.message}")
+                }
+            }
+        }
+
+        return@withContext null
+    }
+
+    // Improved SSL configuration
+    fun configureSSLForDevelopment(httpsConnection: HttpsURLConnection) {
+        try {
+            val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
+                override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
+                override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
+                override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+            })
+
+            val sslContext = SSLContext.getInstance("TLS") // Use TLS instead of SSL
+            sslContext.init(null, trustAllCerts, java.security.SecureRandom())
+            httpsConnection.sslSocketFactory = sslContext.socketFactory
+            httpsConnection.hostnameVerifier = HostnameVerifier { _, _ -> true }
+
+            // Additional SSL settings
+            httpsConnection.setRequestProperty("User-Agent", "Android-App")
+
+            Log.d("PickupAddressScreen", "SSL configured for development")
+        } catch (e: Exception) {
+            Log.e("PickupAddressScreen", "Error configuring SSL", e)
+            throw e // Rethrow to handle SSL configuration failures
+        }
+    }
+
+    // Also update the fetchUserData function with similar improvements
+    suspend fun fetchUserData(email: String): User? = withContext(Dispatchers.IO) {
+        var attempt = 0
+        val maxRetries = 2
+
+        while (attempt < maxRetries) {
+            try {
+                attempt++
+                val url = URL("https://10.0.2.2:8443/api/users/email/$email")
+                Log.d(TAG, "Fetching user data from: $url (attempt $attempt)")
+
+                val connection = url.openConnection() as HttpURLConnection
+
+                if (connection is HttpsURLConnection) {
+                    configureSSLForDevelopment(connection)
+                }
+
+                connection.apply {
+                    requestMethod = "GET"
+                    connectTimeout = 20000  // 20 seconds
+                    readTimeout = 20000     // 20 seconds
+                    setRequestProperty("Accept", "application/json")
+                    setRequestProperty("Connection", "close")
+                    useCaches = false
+                }
+
+                val responseCode = connection.responseCode
+                Log.d(TAG, "User API Response code: $responseCode")
+
+                if (responseCode == HttpURLConnection.HTTP_OK) {
+                    val response = connection.inputStream.use { inputStream ->
+                        BufferedReader(InputStreamReader(inputStream, "UTF-8")).use { reader ->
+                            reader.readText()
+                        }
+                    }
+                    Log.d(TAG, "User data received: $response")
+
+                    val jsonObject = JSONObject(response)
+                    return@withContext User(
+                        id = jsonObject.optLong("id", -1L).takeIf { it != -1L },
+                        email = jsonObject.getString("email"),
+                        firstName = jsonObject.getString("firstName"),
+                        lastName = jsonObject.getString("lastName"),
+                        connectedAccount = jsonObject.optString("connectedAccount", "")
+                    )
+                } else {
+                    Log.e(TAG, "Failed to fetch user data: HTTP $responseCode")
+                    if (attempt < maxRetries && responseCode >= 500) {
+                        kotlinx.coroutines.delay(2000)
+                        continue
+                    }
+                    return@withContext null
+                }
+            } catch (e: java.net.SocketTimeoutException) {
+                Log.e(TAG, "Timeout fetching user data (attempt $attempt)", e)
+                if (attempt < maxRetries) {
+                    kotlinx.coroutines.delay(2000)
+                    continue
+                }
+                return@withContext null
+            } catch (e: Exception) {
+                Log.e(TAG, "Error fetching user data (attempt $attempt)", e)
+                if (attempt < maxRetries && (e is java.io.IOException || e is javax.net.ssl.SSLException)) {
+                    kotlinx.coroutines.delay(2000)
+                    continue
+                }
+                return@withContext null
+            }
+        }
+        return@withContext null
+    }
+    // Function to fetch user data (same as in HomeScreen)
+
+    // Function to handle pickup confirmation
+    fun handlePickupConfirmation() {
+        val currentUser = user
+        val sackSizeInt = sackSize.toIntOrNull()
+
+        if (currentUser?.id == null) {
+            submitError = "User ID not available. Please try logging out and back in."
+            return
+        }
+
+        if (sackSizeInt == null || sackSizeInt <= 0) {
+            submitError = "Please enter a valid sack size."
+            return
+        }
+
+        if (currentAddress == "Loading location..." || currentAddress.isEmpty()) {
+            submitError = "Please wait for location to load or enter a valid address."
+            return
+        }
+
+        isSubmittingPickup = true
+        submitError = null
+
+        scope.launch {
+            try {
+                val pickupRequest = PickupRequest(
+                    userId = currentUser.id,
+                    driverLocation = currentAddress,
+                    pickupLocation = currentAddress,
+                    sackSizeLiters = sackSizeInt
+                )
+
+                val pickupResponse = submitPickupRequest(pickupRequest)
+
+                if (pickupResponse != null) {
+                    // Navigate to loading screen with pickup ID
+                    navController.navigate("pickup_loading_screen/${pickupResponse.id}") {
+                        // Clear the back stack so user can't go back to this screen
+                        popUpTo("pickup_address_screen") { inclusive = true }
+                    }
+                } else {
+                    submitError = "Failed to submit pickup request. Please try again."
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error handling pickup confirmation", e)
+                submitError = "An error occurred: ${e.message}"
+            } finally {
+                isSubmittingPickup = false
             }
         }
     }
@@ -191,6 +572,14 @@ fun PickupAddressScreen(
         } else if (!hasLocationPermission) {
             showPermissionDialog = true
         }
+
+        // Fetch user data
+        authViewModel.userProfile.collect { userProfile ->
+            if (userProfile != null && user == null) {
+                val userData = fetchUserData(userProfile.email ?: "")
+                user = userData
+            }
+        }
     }
 
     // Move camera when device location is obtained
@@ -201,14 +590,6 @@ fun PickupAddressScreen(
                 CameraUpdateFactory.newLatLngZoom(location, 15f)
             )
         }
-    }
-
-    // Mock credit card data - in a real app this would come from cardViewModel
-    val availableCreditCards = remember {
-        listOf(
-            PaymentCard("Visa", "****1234", "12/25"),
-            PaymentCard("Mastercard", "****5678", "10/26")
-        )
     }
 
     // Location permission dialog
@@ -271,6 +652,22 @@ fun PickupAddressScreen(
         )
     }
 
+    // Submit error dialog
+    if (submitError != null) {
+        AlertDialog(
+            onDismissRequest = { submitError = null },
+            title = { Text("Pickup Request Error") },
+            text = { Text(submitError!!) },
+            confirmButton = {
+                Button(
+                    onClick = { submitError = null }
+                ) {
+                    Text("OK")
+                }
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -291,7 +688,7 @@ fun PickupAddressScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Google Maps Implementation
+            // Google Maps Implementation (same as before)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -342,7 +739,7 @@ fun PickupAddressScreen(
                     }
                 }
 
-                // Show permission/location services button if needed
+                // Show permission/location services button if needed (same as before)
                 if (!hasLocationPermission || (hasLocationPermission && !isLocationEnabled)) {
                     Box(
                         modifier = Modifier
@@ -428,18 +825,9 @@ fun PickupAddressScreen(
                         }
                     }
                 }
-
-                // "Start Pickup" button at the bottom of the map
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp)
-                        .align(Alignment.BottomCenter)
-                ) {
-                }
             }
 
-            // Address Confirmation
+            // Address Confirmation (same as before)
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
@@ -505,7 +893,7 @@ fun PickupAddressScreen(
                 }
             }
 
-            // Sack Size Selection
+            // Sack Size Selection (same as before)
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
@@ -537,102 +925,36 @@ fun PickupAddressScreen(
                 }
             }
 
-            // Payment Method Selection
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp)
-                ) {
-                    Text(
-                        "Payment Method",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    availableCreditCards.forEachIndexed { index, card ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 8.dp)
-                                .border(
-                                    width = 1.dp,
-                                    color = if (selectedCardIndex == index)
-                                        MaterialTheme.colorScheme.primary
-                                    else
-                                        Color.LightGray,
-                                    shape = RoundedCornerShape(8.dp)
-                                )
-                                .clip(RoundedCornerShape(8.dp))
-                                .selectable(
-                                    selected = selectedCardIndex == index,
-                                    onClick = { selectedCardIndex = index }
-                                )
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                Icons.Default.CreditCard,
-                                contentDescription = "Credit Card",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-
-                            Column(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .padding(horizontal = 12.dp)
-                            ) {
-                                Text(
-                                    card.type,
-                                    fontWeight = FontWeight.Medium
-                                )
-                                Text(
-                                    "${card.lastFourDigits} | Expires ${card.expiryDate}",
-                                    color = Color.Gray,
-                                    fontSize = 14.sp
-                                )
-                            }
-
-                            RadioButton(
-                                selected = selectedCardIndex == index,
-                                onClick = { selectedCardIndex = index }
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    TextButton(
-                        onClick = { navController.navigate("debit_card_screen") },
-                        modifier = Modifier.align(Alignment.End)
-                    ) {
-                        Text("+ Add New Card")
-                    }
-                }
-            }
-
-            // Action Button
+            // Action Button - Updated to handle API submission
             Spacer(modifier = Modifier.height(16.dp))
 
             Button(
-                onClick = {
-                    // Process the pickup request and navigate to the next screen
-                    // For example:
-                    // viewModel.startPickup(currentAddress, sackSize.toInt(), availableCreditCards[selectedCardIndex])
-                    // navController.navigate("pickup_confirmation_screen")
-                },
+                onClick = { handlePickupConfirmation() },
+                enabled = !isSubmittingPickup,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp)
             ) {
-                Text(
-                    "CONFIRM PICKUP",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                if (isSubmittingPickup) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("SUBMITTING...")
+                    }
+                } else {
+                    Text(
+                        "CONFIRM PICKUP",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
 
             // Add some space at the bottom for better scrolling experience
@@ -641,7 +963,7 @@ fun PickupAddressScreen(
     }
 }
 
-// Helper function to get address from LatLng
+// Helper function to get address from LatLng (same as before)
 fun getAddressFromLocation(context: Context, location: LatLng, callback: (String?) -> Unit) {
     try {
         val geocoder = Geocoder(context, Locale.getDefault())
@@ -674,11 +996,3 @@ fun getAddressFromLocation(context: Context, location: LatLng, callback: (String
         callback("Location: ${location.latitude}, ${location.longitude}")
     }
 }
-
-// If PaymentCard data class doesn't exist in your project, you can use this definition
-// Otherwise, you can remove this and use your existing PaymentCard class
-data class PaymentCard(
-    val type: String,
-    val lastFourDigits: String,
-    val expiryDate: String
-)
