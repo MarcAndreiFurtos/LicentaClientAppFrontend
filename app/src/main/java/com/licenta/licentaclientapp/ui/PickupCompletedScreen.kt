@@ -29,7 +29,6 @@ fun PickupCompletedScreen(
                 title = { Text("Pickup Completed") },
                 navigationIcon = {
                     IconButton(onClick = {
-                        // Navigate back to home screen
                         navController.navigate("home_screen") {
                             popUpTo("pickup_completed_screen/$pickupId") { inclusive = true }
                         }
@@ -52,7 +51,6 @@ fun PickupCompletedScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // Success Icon
             Icon(
                 Icons.Default.CheckCircle,
                 contentDescription = "Success",
@@ -60,7 +58,6 @@ fun PickupCompletedScreen(
                 tint = Color(0xFF4CAF50)
             )
 
-            // Success Message
             Text(
                 text = "Pickup Completed Successfully!",
                 fontSize = 28.sp,
@@ -77,7 +74,6 @@ fun PickupCompletedScreen(
                 modifier = Modifier.padding(horizontal = 16.dp)
             )
 
-            // Pickup Summary Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
@@ -128,7 +124,6 @@ fun PickupCompletedScreen(
                 }
             }
 
-            // Environmental Impact Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
@@ -166,14 +161,12 @@ fun PickupCompletedScreen(
                 }
             }
 
-            // Action Buttons
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Button(
                     onClick = {
-                        // Navigate to schedule another pickup
                         navController.navigate("pickup_address_screen") {
                             popUpTo("pickup_completed_screen/$pickupId") { inclusive = true }
                         }
@@ -200,7 +193,6 @@ fun PickupCompletedScreen(
 
                 OutlinedButton(
                     onClick = {
-                        // Navigate back to home screen
                         navController.navigate("home_screen") {
                             popUpTo("pickup_completed_screen/$pickupId") { inclusive = true }
                         }

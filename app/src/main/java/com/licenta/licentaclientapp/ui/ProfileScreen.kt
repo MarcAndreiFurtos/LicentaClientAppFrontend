@@ -51,7 +51,6 @@ import javax.net.ssl.X509TrustManager
 import java.security.cert.X509Certificate
 import javax.net.ssl.HostnameVerifier
 
-// Configure SSL for development
 private fun configureSSLForDevelopment(httpsConnection: HttpsURLConnection) {
     try {
         val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
@@ -81,37 +80,30 @@ fun ProfileScreen(
     val coroutineScope = rememberCoroutineScope()
     val TAG = "ProfileScreen"
 
-    // State to hold the selected image
     var selectedImageBitmap by remember { mutableStateOf<Bitmap?>(null) }
 
-    // State to track if the upload menu is open
     var showUploadMenu by remember { mutableStateOf(false) }
 
-    // User data states
     var userName by remember { mutableStateOf("Loading...") }
     var userEmail by remember { mutableStateOf("Loading...") }
     var userId by remember { mutableStateOf<Long?>(null) }
     var isLoadingUserData by remember { mutableStateOf(true) }
     var userDataError by remember { mutableStateOf<String?>(null) }
 
-    // State for upload progress
     var isUploadingImage by remember { mutableStateOf(false) }
     var uploadMessage by remember { mutableStateOf<String?>(null) }
 
-    // Delivery history states
     var deliveryHistory by remember { mutableStateOf<List<DeliveryHistoryItem>>(emptyList()) }
     var isLoadingHistory by remember { mutableStateOf(false) }
     var historyError by remember { mutableStateOf<String?>(null) }
 
-    // Function to fetch delivery history from API
     suspend fun fetchDeliveryHistory(userId: Long): List<DeliveryHistoryItem> = withContext(Dispatchers.IO) {
         try {
-            val url = URL("https://10.0.2.2:8443/api/sgrPickup/$userId/history")
+            val url = URL("https://licenta-backend.westeurope.cloudapp.azure.com:8443/api/sgrPickup/$userId/history")
             Log.d(TAG, "Fetching delivery history from: $url")
 
             val connection = url.openConnection() as HttpURLConnection
 
-            // Configure SSL if HTTPS
             if (connection is HttpsURLConnection) {
                 configureSSLForDevelopment(connection)
             }
@@ -131,21 +123,18 @@ fun ProfileScreen(
                 val response = reader.use { it.readText() }
                 Log.d(TAG, "History data received: $response")
 
-                // Parse JSON array response
                 val jsonArray = JSONArray(response)
                 val historyList = mutableListOf<DeliveryHistoryItem>()
 
                 for (i in 0 until jsonArray.length()) {
                     val jsonObject = jsonArray.getJSONObject(i)
 
-                    // Extract data from API response - adjust field names based on your API structure
                     val historyItem = DeliveryHistoryItem(
                         id = jsonObject.optString("id", "Package #${jsonObject.optLong("pickupId",
                             (i + 1).toLong()
                         )}"),
                         date = jsonObject.optString("date", jsonObject.optString("pickupDate", "Unknown Date")),
                         status = jsonObject.optString("status", "Delivered"),
-                        // Add additional fields if your API provides them
                         description = jsonObject.optString("description", ""),
                         location = jsonObject.optString("location", ""),
                         recipientName = jsonObject.optString("recipientName", "")
@@ -156,7 +145,6 @@ fun ProfileScreen(
                 Log.d(TAG, "Parsed ${historyList.size} history items")
                 historyList
             } else {
-                // Read error response
                 val errorReader = BufferedReader(InputStreamReader(connection.errorStream ?: connection.inputStream))
                 val errorResponse = errorReader.use { it.readText() }
                 Log.e(TAG, "Failed to fetch delivery history: HTTP $responseCode - $errorResponse")
@@ -168,35 +156,31 @@ fun ProfileScreen(
         }
     }
 
-    // Function to upload profile picture to backend
     suspend fun uploadProfilePictureToBackend(userId: Long, encryptedImage: String): Boolean = withContext(Dispatchers.IO) {
         try {
-            val url = URL("https://10.0.2.2:8443/api/users/profilePicture")
+            val url = URL("https://licenta-backend.westeurope.cloudapp.azure.com:8443/api/users/profilePicture")
             Log.d(TAG, "Uploading profile picture to: $url")
 
             val connection = url.openConnection() as HttpURLConnection
 
-            // Configure SSL if HTTPS
             if (connection is HttpsURLConnection) {
                 configureSSLForDevelopment(connection)
             }
 
             connection.apply {
                 requestMethod = "PUT"
-                connectTimeout = 30000 // Increased timeout for image upload
+                connectTimeout = 30000
                 readTimeout = 30000
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json")
                 setRequestProperty("Accept", "application/json")
             }
 
-            // Create JSON payload
             val jsonPayload = JSONObject().apply {
                 put("userId", userId)
                 put("incriptedImmage", encryptedImage)
             }
 
-            // Write JSON to request body
             val writer = OutputStreamWriter(connection.outputStream)
             writer.write(jsonPayload.toString())
             writer.flush()
@@ -211,7 +195,6 @@ fun ProfileScreen(
                 Log.d(TAG, "Profile picture upload response: $response")
                 true
             } else {
-                // Read error response
                 val errorReader = BufferedReader(InputStreamReader(connection.errorStream ?: connection.inputStream))
                 val errorResponse = errorReader.use { it.readText() }
                 Log.e(TAG, "Failed to upload profile picture: HTTP $responseCode - $errorResponse")
@@ -223,15 +206,13 @@ fun ProfileScreen(
         }
     }
 
-    // Function to fetch user data by ID
     suspend fun fetchUserDataById(userId: Long): ProfileUser? = withContext(Dispatchers.IO) {
         try {
-            val url = URL("https://10.0.2.2:8443/api/users/$userId")
+            val url = URL("https://licenta-backend.westeurope.cloudapp.azure.com:8443/api/users/$userId")
             Log.d(TAG, "Fetching user data from: $url")
 
             val connection = url.openConnection() as HttpURLConnection
 
-            // Configure SSL if HTTPS
             if (connection is HttpsURLConnection) {
                 configureSSLForDevelopment(connection)
             }
@@ -270,10 +251,9 @@ fun ProfileScreen(
         }
     }
 
-    // Function to get user ID from email (same logic as in HomeScreen)
     suspend fun getUserIdFromEmail(email: String): Long? = withContext(Dispatchers.IO) {
         try {
-            val url = URL("https://10.0.2.2:8443/api/users/email/$email")
+            val url = URL("https://licenta-backend.westeurope.cloudapp.azure.com:8443/api/users/email/$email")
             Log.d(TAG, "Fetching user ID from: $url")
 
             val connection = url.openConnection() as HttpURLConnection
@@ -308,7 +288,6 @@ fun ProfileScreen(
         }
     }
 
-    // Function to decrypt profile picture from hex string (inverse of your encryption)
     fun decryptProfilePictureFromHex(hexString: String): Bitmap? {
         return if (hexString.isNotEmpty()) {
             convertHexStringToBitmap(hexString)
@@ -317,7 +296,6 @@ fun ProfileScreen(
         }
     }
 
-    // Helper function to load profile picture from local storage
     suspend fun loadLocalProfilePicture() {
         try {
             val sharedPrefs = context.getSharedPreferences("profile_preferences", 0)
@@ -339,7 +317,6 @@ fun ProfileScreen(
         }
     }
 
-    // Image picker launcher
     val imagePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -348,7 +325,6 @@ fun ProfileScreen(
                 val bitmap = withContext(Dispatchers.IO) {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                         val source = ImageDecoder.createSource(context.contentResolver, uri)
-                        // Configure decoder to use ARGB_8888 instead of HARDWARE
                         ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
                             decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
                             decoder.isMutableRequired = true
@@ -360,14 +336,11 @@ fun ProfileScreen(
                 }
                 selectedImageBitmap = bitmap
 
-                // Process and store the bitmap as requested
                 val hexString = convertBitmapToHexString(bitmap)
 
-                // Store the hex string in preferences
                 val sharedPrefs = context.getSharedPreferences("profile_preferences", 0)
                 sharedPrefs.edit().putString("profile_picture_hex", hexString).apply()
 
-                // Upload to backend if userId is available
                 userId?.let { id ->
                     isUploadingImage = true
                     uploadMessage = "Uploading profile picture..."
@@ -384,7 +357,6 @@ fun ProfileScreen(
 
                     isUploadingImage = false
 
-                    // Clear the message after 3 seconds
                     kotlinx.coroutines.delay(3000)
                     uploadMessage = null
                 } ?: run {
@@ -406,35 +378,29 @@ fun ProfileScreen(
             Log.e(TAG, "Error clearing local profile picture", e)
         }
     }
-    // Load user data on initialization
     LaunchedEffect(Unit) {
         authViewModel.userProfile.collect { userProfile ->
             if (userProfile != null && isLoadingUserData) {
                 try {
                     Log.d(TAG, "Loading user data for email: ${userProfile.email}")
 
-                    // Clear local profile picture at the start of refresh
                     clearLocalProfilePicture()
-                    selectedImageBitmap = null // Also clear the current displayed image
+                    selectedImageBitmap = null
 
-                    // First get user ID from email
                     val fetchedUserId = getUserIdFromEmail(userProfile.email ?: "")
 
                     if (fetchedUserId != null) {
                         userId = fetchedUserId
                         Log.d(TAG, "Found user ID: $fetchedUserId")
 
-                        // Then fetch full user data by ID
                         val userData = fetchUserDataById(fetchedUserId)
 
                         if (userData != null) {
-                            // Populate the fields
                             userName = "${userData.firstName} ${userData.lastName}".trim()
                             userEmail = userData.email
 
                             Log.d(TAG, "User data loaded: $userName, Profile picture length: ${userData.profilePicture.length}")
 
-                            // Always try to load profile picture from API first
                             if (userData.profilePicture.isNotEmpty()) {
                                 Log.d(TAG, "Loading profile picture from backend")
                                 val profileBitmap = decryptProfilePictureFromHex(userData.profilePicture)
@@ -442,7 +408,6 @@ fun ProfileScreen(
                                     selectedImageBitmap = profileBitmap
                                     Log.d(TAG, "Profile picture loaded successfully from backend")
 
-                                    // Save the fresh profile picture to local storage for offline use
                                     val hexString = convertBitmapToHexString(profileBitmap)
                                     val sharedPrefs = context.getSharedPreferences("profile_preferences", 0)
                                     sharedPrefs.edit().putString("profile_picture_hex", hexString).apply()
@@ -458,7 +423,6 @@ fun ProfileScreen(
 
                             userDataError = null
 
-                            // Fetch delivery history after user data is loaded
                             isLoadingHistory = true
                             historyError = null
 
@@ -478,14 +442,14 @@ fun ProfileScreen(
                             userDataError = "Failed to load user data"
                             userName = userProfile.name ?: "Unknown User"
                             userEmail = userProfile.email ?: "Unknown Email"
-                            selectedImageBitmap = null // Don't load from local storage
+                            selectedImageBitmap = null
                             isLoadingHistory = false
                         }
                     } else {
                         userDataError = "User not found"
                         userName = userProfile.name ?: "Unknown User"
                         userEmail = userProfile.email ?: "Unknown Email"
-                        selectedImageBitmap = null // Don't load from local storage
+                        selectedImageBitmap = null
                         isLoadingHistory = false
                     }
                 } catch (e: Exception) {
@@ -493,7 +457,7 @@ fun ProfileScreen(
                     userDataError = "Error loading user data: ${e.message}"
                     userName = userProfile.name ?: "Unknown User"
                     userEmail = userProfile.email ?: "Unknown Email"
-                    selectedImageBitmap = null // Don't load from local storage on error
+                    selectedImageBitmap = null
                     isLoadingHistory = false
                 } finally {
                     isLoadingUserData = false
@@ -521,7 +485,6 @@ fun ProfileScreen(
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Profile Picture (Clickable)
             Box(
                 modifier = Modifier
                     .padding(vertical = 24.dp)
@@ -533,7 +496,6 @@ fun ProfileScreen(
                 contentAlignment = Alignment.Center
             ) {
                 if (selectedImageBitmap != null) {
-                    // Show the selected image
                     Image(
                         bitmap = selectedImageBitmap!!.asImageBitmap(),
                         contentDescription = "Profile Picture",
@@ -541,7 +503,6 @@ fun ProfileScreen(
                         contentScale = ContentScale.Crop
                     )
                 } else {
-                    // Show default icon
                     Icon(
                         imageVector = Icons.Default.Person,
                         contentDescription = "Profile Picture",
@@ -550,7 +511,6 @@ fun ProfileScreen(
                     )
                 }
 
-                // Show upload progress indicator
                 if (isUploadingImage) {
                     Box(
                         modifier = Modifier
@@ -566,7 +526,6 @@ fun ProfileScreen(
                 }
             }
 
-            // Upload status message
             uploadMessage?.let { message ->
                 Text(
                     text = message,
@@ -576,7 +535,6 @@ fun ProfileScreen(
                 )
             }
 
-            // Upload menu dropdown
             if (showUploadMenu) {
                 AlertDialog(
                     onDismissRequest = { showUploadMenu = false },
@@ -599,7 +557,6 @@ fun ProfileScreen(
                 )
             }
 
-            // User details with loading states
             if (isLoadingUserData) {
                 CircularProgressIndicator(
                     modifier = Modifier.padding(vertical = 16.dp)
@@ -611,7 +568,6 @@ fun ProfileScreen(
                     modifier = Modifier.padding(bottom = 32.dp)
                 )
             } else {
-                // Show error if any
                 if (userDataError != null) {
                     Text(
                         text = "⚠️ $userDataError",
@@ -621,7 +577,6 @@ fun ProfileScreen(
                     )
                 }
 
-                // User name
                 Text(
                     text = userName,
                     fontSize = 24.sp,
@@ -629,7 +584,6 @@ fun ProfileScreen(
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
 
-                // User email
                 Text(
                     text = userEmail,
                     fontSize = 16.sp,
@@ -638,7 +592,6 @@ fun ProfileScreen(
                 )
             }
 
-            // Delivery History header
             Text(
                 text = "Delivery History",
                 fontSize = 20.sp,
@@ -649,7 +602,6 @@ fun ProfileScreen(
                 textAlign = TextAlign.Left
             )
 
-            // Display delivery history with loading states
             when {
                 isLoadingHistory -> {
                     CircularProgressIndicator(
@@ -691,16 +643,13 @@ fun ProfileScreen(
     }
 }
 
-// Function to convert bitmap to hex string with dimensions preserved
 private fun convertBitmapToHexString(bitmap: Bitmap): String {
-    // Ensure bitmap is in a format that supports getPixels()
     val mutableBitmap = if (Build.VERSION.SDK_INT >= 26 && bitmap.config?.toString() == "HARDWARE") {
         bitmap.copy(Bitmap.Config.ARGB_8888, true)
     } else {
         if (bitmap.isMutable) bitmap else bitmap.copy(Bitmap.Config.ARGB_8888, true)
     }
 
-    // Resize bitmap if too large to avoid memory issues
     val resizedBitmap = if (mutableBitmap.width > 300 || mutableBitmap.height > 300) {
         val ratio = mutableBitmap.width.toFloat() / mutableBitmap.height.toFloat()
         val width = 300
@@ -713,31 +662,24 @@ private fun convertBitmapToHexString(bitmap: Bitmap): String {
     val width = resizedBitmap.width
     val height = resizedBitmap.height
 
-    // Create array of pixels
     val pixels = IntArray(width * height)
     resizedBitmap.getPixels(pixels, 0, width, 0, 0, width, height)
 
-    // Create hex string with dimensions header
     val hexBuilder = StringBuilder()
 
-    // Add dimensions as header (width:height:)
     hexBuilder.append("${width}:${height}:")
 
-    // Convert pixels to hex
     for (pixel in pixels) {
-        // Convert ARGB pixel to hex (including alpha channel)
         hexBuilder.append(String.format("%08X", pixel))
     }
 
     return hexBuilder.toString()
 }
 
-// Function to convert hex string back to bitmap with proper dimensions
 private fun convertHexStringToBitmap(hexString: String): Bitmap? {
     try {
         if (hexString.isEmpty()) return null
 
-        // Parse dimensions from header
         val parts = hexString.split(":", limit = 3)
         if (parts.size != 3) {
             Log.e("ProfileScreen", "Invalid hex string format - missing dimensions")
@@ -748,15 +690,13 @@ private fun convertHexStringToBitmap(hexString: String): Bitmap? {
         val height = parts[1].toInt()
         val pixelData = parts[2]
 
-        // Validate dimensions
         if (width <= 0 || height <= 0 || width > 1000 || height > 1000) {
             Log.e("ProfileScreen", "Invalid dimensions: ${width}x${height}")
             return null
         }
 
-        // Convert hex string back to pixel array
         val expectedPixels = width * height
-        val expectedHexLength = expectedPixels * 8 // 8 hex chars per pixel (ARGB)
+        val expectedHexLength = expectedPixels * 8
 
         if (pixelData.length != expectedHexLength) {
             Log.e("ProfileScreen", "Hex data length mismatch. Expected: $expectedHexLength, Got: ${pixelData.length}")
@@ -765,13 +705,11 @@ private fun convertHexStringToBitmap(hexString: String): Bitmap? {
 
         val pixels = IntArray(expectedPixels)
 
-        // Parse hex data in chunks of 8 characters (ARGB)
         for (i in 0 until expectedPixels) {
             val hexPixel = pixelData.substring(i * 8, (i + 1) * 8)
             pixels[i] = hexPixel.toLong(16).toInt()
         }
 
-        // Create bitmap with correct dimensions
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         bitmap.setPixels(pixels, 0, width, 0, 0, width, height)
 
@@ -783,7 +721,6 @@ private fun convertHexStringToBitmap(hexString: String): Bitmap? {
     }
 }
 
-// Renamed User data class to ProfileUser to avoid conflicts with HomeScreen
 data class ProfileUser(
     val id: Long? = null,
     val email: String,
@@ -793,7 +730,6 @@ data class ProfileUser(
     val profilePicture: String = ""
 )
 
-// Updated data class for delivery history items with additional fields
 data class DeliveryHistoryItem(
     val id: String,
     val date: String,
@@ -803,7 +739,6 @@ data class DeliveryHistoryItem(
     val recipientName: String = ""
 )
 
-// Updated UI component for a delivery history item with additional information
 @Composable
 fun DeliveryHistoryItemCard(delivery: DeliveryHistoryItem) {
     Card(
@@ -817,7 +752,6 @@ fun DeliveryHistoryItemCard(delivery: DeliveryHistoryItem) {
                 .fillMaxWidth()
                 .padding(16.dp)
         ) {
-            // Top row with ID and status
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -835,7 +769,6 @@ fun DeliveryHistoryItemCard(delivery: DeliveryHistoryItem) {
                     )
                 }
 
-                // Status chip
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(16.dp))
@@ -857,7 +790,6 @@ fun DeliveryHistoryItemCard(delivery: DeliveryHistoryItem) {
                 }
             }
 
-            // Additional information if available
             if (delivery.description.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(

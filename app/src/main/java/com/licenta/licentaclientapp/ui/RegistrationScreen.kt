@@ -25,19 +25,17 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 @Composable
 fun RegistrationScreen(
     registrationViewModel: RegistrationViewModel = viewModel(),
-    authViewModel: AuthViewModel, // Add AuthViewModel parameter
+    authViewModel: AuthViewModel,
     onRegistrationComplete: () -> Unit,
     onBackPressed: () -> Unit
 ) {
     val uiState by registrationViewModel.uiState.collectAsState()
     val focusManager = LocalFocusManager.current
 
-    // Initialize with Auth0 profile when the screen is first composed
     LaunchedEffect(authViewModel) {
         registrationViewModel.initializeWithAuth0Profile(authViewModel)
     }
 
-    // Handle successful registration
     LaunchedEffect(uiState.isRegistrationSuccessful) {
         if (uiState.isRegistrationSuccessful) {
             onRegistrationComplete()
@@ -51,7 +49,6 @@ fun RegistrationScreen(
             .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Header
         Text(
             text = "Complete Your Registration",
             fontSize = 28.sp,
@@ -70,7 +67,6 @@ fun RegistrationScreen(
             modifier = Modifier.padding(bottom = 32.dp)
         )
 
-        // Email Field
         OutlinedTextField(
             value = uiState.email,
             onValueChange = { registrationViewModel.updateEmail(it) },
@@ -97,7 +93,7 @@ fun RegistrationScreen(
                     )
                 }
             },
-            enabled = !uiState.isEmailReadOnly, // Disable if email is from Auth0
+            enabled = !uiState.isEmailReadOnly,
             colors = if (uiState.isEmailReadOnly) {
                 OutlinedTextFieldDefaults.colors(
                     disabledTextColor = MaterialTheme.colorScheme.onSurface,
@@ -114,7 +110,6 @@ fun RegistrationScreen(
             singleLine = true
         )
 
-        // Show info message if email is from Auth0
         if (uiState.isEmailReadOnly) {
             Card(
                 modifier = Modifier
@@ -133,7 +128,6 @@ fun RegistrationScreen(
             }
         }
 
-        // First Name Field
         OutlinedTextField(
             value = uiState.firstName,
             onValueChange = { registrationViewModel.updateFirstName(it) },
@@ -166,7 +160,6 @@ fun RegistrationScreen(
             singleLine = true
         )
 
-        // Last Name Field
         OutlinedTextField(
             value = uiState.lastName,
             onValueChange = { registrationViewModel.updateLastName(it) },
@@ -204,7 +197,6 @@ fun RegistrationScreen(
             singleLine = true
         )
 
-        // General Error Message
         uiState.generalError?.let { error ->
             Card(
                 modifier = Modifier
@@ -222,7 +214,6 @@ fun RegistrationScreen(
             }
         }
 
-        // Register Button
         Button(
             onClick = { registrationViewModel.registerUser() },
             enabled = uiState.isFormValid && !uiState.isLoading,
@@ -246,7 +237,6 @@ fun RegistrationScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Back Button
         TextButton(
             onClick = onBackPressed,
             enabled = !uiState.isLoading
@@ -257,7 +247,6 @@ fun RegistrationScreen(
             )
         }
 
-        // Success Message
         if (uiState.isRegistrationSuccessful) {
             Spacer(modifier = Modifier.height(16.dp))
             Card(

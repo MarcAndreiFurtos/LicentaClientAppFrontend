@@ -17,7 +17,6 @@ import com.licenta.licentaclientapp.ui.AuthViewModel
 import com.licenta.licentaclientapp.ui.theme.LicentaClientAppTheme
 
 class MainActivity : ComponentActivity() {
-    // Create an instance of the AuthViewModel
     private val authViewModel: AuthViewModel by viewModels()
     private val TAG = "MainActivity"
 
@@ -25,7 +24,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         Log.d(TAG, "onCreate called")
 
-        // Check if this activity was started from a redirect
         if (intent != null) {
             handleIntent(intent)
         }
@@ -36,7 +34,6 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    // Pass the authViewModel to AppNavigation
                     AppNavigation(authViewModel = authViewModel)
                 }
             }
@@ -47,18 +44,15 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         Log.d(TAG, "onNewIntent called")
 
-        // Handle the redirect intent
         handleIntent(intent)
     }
 
     private fun handleIntent(intent: Intent) {
         Log.d(TAG, "handleIntent called with action: ${intent.action}, data: ${intent.data}")
 
-        // Let Auth0 SDK handle the intent
         if (intent.data != null) {
             Log.d(TAG, "Processing potential Auth0 redirect URL: ${intent.data}")
 
-            // This lets the WebAuthProvider complete any pending authentication
             try {
                 WebAuthProvider.resume(intent)
                 Log.d(TAG, "WebAuthProvider.resume called successfully")

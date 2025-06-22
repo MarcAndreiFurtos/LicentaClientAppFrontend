@@ -16,9 +16,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.background
 import androidx.navigation.NavController
 
-/**
- * Modified LocationSearchBar component that opens the pickup address screen when clicked
- */
+
 @Composable
 fun LocationSearchBar(navController: NavController) {
     Box(
@@ -30,7 +28,6 @@ fun LocationSearchBar(navController: NavController) {
             .clip(RoundedCornerShape(12.dp))
             .background(Color(0xFFF2F2F2))
             .clickable {
-                // Navigate to the pickup address screen when clicked
                 navController.navigate("pickup_address_screen")
             },
         contentAlignment = Alignment.CenterStart

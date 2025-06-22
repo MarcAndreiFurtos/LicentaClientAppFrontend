@@ -31,16 +31,13 @@ fun LoginScreen(
     val error by authViewModel.error.collectAsState()
     val isAuthenticated by authViewModel.isAuthenticated.collectAsState()
 
-    // Track if login was attempted to show appropriate feedback
     var loginAttempted by remember { mutableStateOf(false) }
 
-    // Initialize the auth view model
     LaunchedEffect(Unit) {
         Log.d(TAG, "LoginScreen initialization")
         authViewModel.initialize(context)
     }
 
-    // Show snackbar for errors
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(error) {
@@ -50,12 +47,10 @@ fun LoginScreen(
                 message = error ?: "Unknown error",
                 duration = SnackbarDuration.Long
             )
-            // Clear the error after showing it
             authViewModel.clearError()
         }
     }
 
-    // Check if login was successful
     LaunchedEffect(isAuthenticated) {
         if (isAuthenticated && loginAttempted) {
             Log.d(TAG, "Login successful, calling onLoginSuccess")
@@ -80,7 +75,6 @@ fun LoginScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterVertically)
             ) {
-                // App Logo
                 Image(
                     painter = painterResource(id = R.drawable.logo),
                     contentDescription = "App Logo",
@@ -89,7 +83,6 @@ fun LoginScreen(
                         .padding(bottom = 16.dp)
                 )
 
-                // App Name
                 Text(
                     text = "Sgr Pickup",
                     fontSize = 28.sp,
@@ -97,7 +90,6 @@ fun LoginScreen(
                     color = MaterialTheme.colorScheme.primary
                 )
 
-                // Welcome Text
                 Text(
                     text = "Welcome to our pickup service app",
                     fontSize = 16.sp,
@@ -107,7 +99,6 @@ fun LoginScreen(
 
                 Spacer(modifier = Modifier.height(32.dp))
 
-                // Login button
                 Button(
                     onClick = {
                         Log.d(TAG, "Login button clicked")
@@ -115,7 +106,6 @@ fun LoginScreen(
                         scope.launch {
                             authViewModel.login(context) { success ->
                                 Log.d(TAG, "Login callback result: $success")
-                                // Navigation is handled by LaunchedEffect
                             }
                         }
                     },
@@ -135,7 +125,6 @@ fun LoginScreen(
                     }
                 }
 
-                // Version info at the bottom
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.BottomCenter

@@ -33,7 +33,7 @@ data class RegistrationUiState(
     val isLoading: Boolean = false,
     val isRegistrationSuccessful: Boolean = false,
     val isFormValid: Boolean = false,
-    val isEmailReadOnly: Boolean = false // New field to handle Auth0 pre-filled email
+    val isEmailReadOnly: Boolean = false
 )
 
 class RegistrationViewModel : ViewModel() {
@@ -42,21 +42,19 @@ class RegistrationViewModel : ViewModel() {
     private val _uiState = MutableStateFlow(RegistrationUiState())
     val uiState: StateFlow<RegistrationUiState> = _uiState.asStateFlow()
 
-    // Initialize with Auth0 user profile if available
     fun initializeWithAuth0Profile(authViewModel: AuthViewModel) {
         viewModelScope.launch {
             authViewModel.userProfile.collect { userProfile ->
                 if (userProfile != null && _uiState.value.email.isEmpty()) {
                     Log.d(TAG, "Initializing registration with Auth0 profile: ${userProfile.email}")
 
-                    // Extract first and last name from Auth0 profile if available
                     val names = extractNamesFromAuth0Profile(userProfile)
 
                     _uiState.value = _uiState.value.copy(
                         email = userProfile.email ?: "",
                         firstName = names.first,
                         lastName = names.second,
-                        isEmailReadOnly = true, // Email is read-only when coming from Auth0
+                        isEmailReadOnly = true,
                         emailError = null
                     )
                     updateFormValidity()
@@ -65,16 +63,12 @@ class RegistrationViewModel : ViewModel() {
         }
     }
 
-    // Extract first and last names from Auth0 user profile
     private fun extractNamesFromAuth0Profile(userProfile: com.licenta.licentaclientapp.auth.UserProfile): Pair<String, String> {
-        // Try to get names from Auth0 profile
         val fullName = userProfile.name ?: ""
 
-        // Try to extract from nickname if name is not available
         val displayName = if (fullName.isNotBlank()) fullName else (userProfile.firstName ?: "")
 
         return when {
-            // If we have a display name, try to split it
             displayName.isNotEmpty() -> {
                 val nameParts = displayName.trim().split("\\s+".toRegex())
                 when (nameParts.size) {
@@ -83,12 +77,10 @@ class RegistrationViewModel : ViewModel() {
                     else -> Pair(nameParts[0], nameParts.drop(1).joinToString(" "))
                 }
             }
-            // Default to empty if no name information is available
             else -> Pair("", "")
         }
     }
 
-    // Update email field (only if not read-only)
     fun updateEmail(email: String) {
         if (!_uiState.value.isEmailReadOnly) {
             _uiState.value = _uiState.value.copy(
@@ -100,7 +92,6 @@ class RegistrationViewModel : ViewModel() {
         }
     }
 
-    // Update first name field
     fun updateFirstName(firstName: String) {
         _uiState.value = _uiState.value.copy(
             firstName = firstName.trim(),
@@ -110,7 +101,6 @@ class RegistrationViewModel : ViewModel() {
         updateFormValidity()
     }
 
-    // Update last name field
     fun updateLastName(lastName: String) {
         _uiState.value = _uiState.value.copy(
             lastName = lastName.trim(),
@@ -120,7 +110,6 @@ class RegistrationViewModel : ViewModel() {
         updateFormValidity()
     }
 
-    // Validate email format
     private fun validateEmail(email: String): String? {
         return when {
             email.isBlank() -> "Email is required"
@@ -129,7 +118,6 @@ class RegistrationViewModel : ViewModel() {
         }
     }
 
-    // Validate first name
     private fun validateFirstName(firstName: String): String? {
         return when {
             firstName.isBlank() -> "First name is required"
@@ -140,7 +128,6 @@ class RegistrationViewModel : ViewModel() {
         }
     }
 
-    // Validate last name
     private fun validateLastName(lastName: String): String? {
         return when {
             lastName.isBlank() -> "Last name is required"
@@ -151,7 +138,6 @@ class RegistrationViewModel : ViewModel() {
         }
     }
 
-    // Update form validity
     private fun updateFormValidity() {
         val currentState = _uiState.value
         val isValid = currentState.email.isNotBlank() &&
@@ -164,7 +150,6 @@ class RegistrationViewModel : ViewModel() {
         _uiState.value = currentState.copy(isFormValid = isValid)
     }
 
-    // Register user
     fun registerUser() {
         val currentState = _uiState.value
 
@@ -210,7 +195,6 @@ class RegistrationViewModel : ViewModel() {
         }
     }
 
-    // Configure SSL for development (same as in AuthViewModel)
     private fun configureSSLForDevelopment(httpsConnection: HttpsURLConnection) {
         try {
             val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
@@ -230,24 +214,21 @@ class RegistrationViewModel : ViewModel() {
         }
     }
 
-    // Create user account via API
     private suspend fun createUserAccount(
         email: String,
         firstName: String,
         lastName: String
     ): Boolean = withContext(Dispatchers.IO) {
-        val url = URL("https://10.0.2.2:8443/api/users")
+        val url = URL("https://licenta-backend.westeurope.cloudapp.azure.com:8443/api/users")
 
         Log.d(TAG, "Making POST request to create user: $url")
 
         val connection = url.openConnection() as HttpURLConnection
 
-        // Configure SSL if HTTPS
         if (connection is HttpsURLConnection) {
             configureSSLForDevelopment(connection)
         }
 
-        // Create JSON payload
         val jsonPayload = JSONObject().apply {
             put("email", email)
             put("firstName", firstName)
@@ -264,7 +245,6 @@ class RegistrationViewModel : ViewModel() {
                 doOutput = true
             }
 
-            // Write JSON payload
             val writer = OutputStreamWriter(connection.outputStream)
             writer.write(jsonPayload.toString())
             writer.flush()
@@ -301,7 +281,6 @@ class RegistrationViewModel : ViewModel() {
         }
     }
 
-    // Get user-friendly error message
     private fun getErrorMessage(exception: Exception): String {
         return when (exception) {
             is UserAlreadyExistsException -> exception.message ?: "Account already exists"
@@ -312,7 +291,6 @@ class RegistrationViewModel : ViewModel() {
         }
     }
 
-    // Clear error messages
     fun clearErrors() {
         _uiState.value = _uiState.value.copy(
             emailError = null,
@@ -322,11 +300,9 @@ class RegistrationViewModel : ViewModel() {
         )
     }
 
-    // Reset form
     fun resetForm() {
         _uiState.value = RegistrationUiState()
     }
 }
 
-// Custom exception for user already exists
 class UserAlreadyExistsException(message: String) : Exception(message)

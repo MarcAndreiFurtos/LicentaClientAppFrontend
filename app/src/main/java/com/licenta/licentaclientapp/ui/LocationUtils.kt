@@ -16,21 +16,19 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 
-// Location request for getting current location
 private val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 10000)
     .setWaitForAccurateLocation(false)
     .setMinUpdateIntervalMillis(5000)
     .setMaxUpdateDelayMillis(10000)
     .build()
 
-// Function to check if location services are enabled
+
 fun isLocationEnabled(context: Context): Boolean {
     val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
     return locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
             locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
 }
 
-// Improved function to fetch location
 @SuppressLint("MissingPermission")
 fun fetchLocation(
     context: Context,
@@ -40,7 +38,6 @@ fun fetchLocation(
 ) {
     setLoading(true)
 
-    // First check if location services are enabled
     if (!isLocationEnabled(context)) {
         Log.d("LocationFetch", "Location services disabled")
         setLoading(false)
@@ -48,7 +45,6 @@ fun fetchLocation(
         return
     }
 
-    // Check permissions
     if (ContextCompat.checkSelfPermission(
             context,
             Manifest.permission.ACCESS_FINE_LOCATION
@@ -66,7 +62,6 @@ fun fetchLocation(
 
     scope.launch {
         try {
-            // First try to get current location
             val location = getCurrentLocation(context)
             if (location != null) {
                 Log.d("LocationFetch", "Current location fetched: $location")
@@ -75,7 +70,6 @@ fun fetchLocation(
                 return@launch
             }
 
-            // If current location fails, fall back to last known location
             val lastLocation = getLastKnownLocation(context)
             Log.d("LocationFetch", "Last known location fetched: $lastLocation")
             callback(lastLocation)
@@ -88,7 +82,6 @@ fun fetchLocation(
     }
 }
 
-// Function to get the current location
 @SuppressLint("MissingPermission")
 suspend fun getCurrentLocation(context: Context): LatLng? {
     val fusedClient = LocationServices.getFusedLocationProviderClient(context)
@@ -113,7 +106,6 @@ suspend fun getCurrentLocation(context: Context): LatLng? {
                 Looper.getMainLooper()
             )
 
-            // Set a timeout
             cont.invokeOnCancellation {
                 fusedClient.removeLocationUpdates(locationCallback)
             }
@@ -125,7 +117,6 @@ suspend fun getCurrentLocation(context: Context): LatLng? {
     }
 }
 
-// Improved function to get last known location
 @SuppressLint("MissingPermission")
 suspend fun getLastKnownLocation(context: Context): LatLng? {
     val fusedClient = LocationServices.getFusedLocationProviderClient(context)

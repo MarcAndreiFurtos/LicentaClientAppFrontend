@@ -25,7 +25,6 @@ fun CallToActionButton(navController: NavController) {
     ) {
         Button(
             onClick = {
-                // Navigate to pickup address screen
                 navController.navigate("pickup_address_screen")
             },
             modifier = Modifier.fillMaxWidth(),

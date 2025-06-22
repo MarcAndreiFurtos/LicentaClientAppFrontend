@@ -60,7 +60,6 @@ import java.security.cert.X509Certificate
 import javax.net.ssl.HostnameVerifier
 import java.util.*
 
-// Data classes for the API requests/responses
 data class PickupRequest(
     val userId: Long,
     val driverLocation: String,
@@ -71,15 +70,13 @@ data class PickupRequest(
 data class PickupResponse(
     val id: Long,
     val status: String,
-    val user: User, // Changed from userId to user object
+    val user: User,
     val driverLocation: String,
     val pickupLocation: String,
 ) {
-    // Helper property to get userId from the user object
     val userId: Long get() = user.id ?: -1L
 }
 
-// Configure SSL for development
 private fun configureSSLForDevelopment(httpsConnection: HttpsURLConnection) {
     try {
         val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
@@ -104,26 +101,21 @@ private fun configureSSLForDevelopment(httpsConnection: HttpsURLConnection) {
 fun PickupAddressScreen(
     navController: NavController,
     authViewModel: AuthViewModel,
-    // Use the existing CardViewModel from the app
-    cardViewModel: CardViewModel? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val TAG = "PickupAddressScreen"
 
-    // Default location (will be updated with real location)
     val defaultLocation = LatLng(37.7749, -122.4194)
 
     var sackSize by remember { mutableStateOf("60") }
     var isAddressConfirmed by remember { mutableStateOf(true) }
     var currentAddress by remember { mutableStateOf("Loading location...") }
 
-    // API related state
     var isSubmittingPickup by remember { mutableStateOf(false) }
     var submitError by remember { mutableStateOf<String?>(null) }
     var user by remember { mutableStateOf<User?>(null) }
 
-    // Location-related state
     var hasLocationPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(
@@ -146,7 +138,6 @@ fun PickupAddressScreen(
     var deviceLocation by remember { mutableStateOf<LatLng?>(null) }
     var isLoadingLocation by remember { mutableStateOf(false) }
 
-    // Permission launcher
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
@@ -156,18 +147,15 @@ fun PickupAddressScreen(
         hasLocationPermission = fineLocationGranted || coarseLocationGranted
 
         if (hasLocationPermission) {
-            // Check if location services are enabled
             isLocationEnabled = isLocationEnabled(context)
 
             if (isLocationEnabled) {
-                // Both permission and location services are enabled, fetch location
                 fetchLocation(
                     context,
                     scope,
                     { isLoading -> isLoadingLocation = isLoading },
                     { location ->
                         deviceLocation = location
-                        // Get address from coordinates
                         location?.let { getAddressFromLocation(context, it) { address ->
                             if (address != null) {
                                 currentAddress = address
@@ -176,7 +164,6 @@ fun PickupAddressScreen(
                     }
                 )
             } else {
-                // Show dialog to enable location services
                 showLocationServicesDialog = true
             }
         }
@@ -184,21 +171,20 @@ fun PickupAddressScreen(
     suspend fun submitPickupRequest(pickupRequest: PickupRequest): PickupResponse? = withContext(Dispatchers.IO) {
         var attempt = 0
         val maxRetries = 3
-        val baseDelay = 2000L // 2 seconds
+        val baseDelay = 2000L
 
         while (attempt < maxRetries) {
             try {
                 attempt++
                 Log.d(TAG, "Submitting pickup request (attempt $attempt/$maxRetries)")
 
-                val url = URL("https://10.0.2.2:8443/api/sgrPickup")
+                val url = URL("https://licenta-backend.westeurope.cloudapp.azure.com:8443/api/sgrPickup")
                 val connection = url.openConnection() as HttpURLConnection
 
                 if (connection is HttpsURLConnection) {
                     configureSSLForDevelopment(connection)
                 }
 
-                // Create JSON payload
                 val jsonPayload = JSONObject().apply {
                     put("userId", pickupRequest.userId)
                     put("driverLocation", pickupRequest.driverLocation)
@@ -208,17 +194,15 @@ fun PickupAddressScreen(
 
                 connection.apply {
                     requestMethod = "POST"
-                    // Increase timeout values
-                    connectTimeout = 30000  // 30 seconds
-                    readTimeout = 30000     // 30 seconds
+                    connectTimeout = 30000
+                    readTimeout = 30000
                     setRequestProperty("Content-Type", "application/json")
                     setRequestProperty("Accept", "application/json")
-                    setRequestProperty("Connection", "close") // Prevent connection reuse issues
+                    setRequestProperty("Connection", "close")
                     doOutput = true
                     useCaches = false
                 }
 
-                // Write JSON payload
                 connection.outputStream.use { outputStream ->
                     OutputStreamWriter(outputStream, "UTF-8").use { writer ->
                         writer.write(jsonPayload.toString())
@@ -238,10 +222,8 @@ fun PickupAddressScreen(
                         }
                         Log.d(TAG, "Pickup response: $response")
 
-                        // Updated response parsing with defensive handling
                         val jsonObject = JSONObject(response)
 
-                        // Try to get userId directly first, then fall back to user.id
                         val userId = when {
                             jsonObject.has("userId") -> jsonObject.getLong("userId")
                             jsonObject.has("user") -> {
@@ -251,7 +233,6 @@ fun PickupAddressScreen(
                             else -> -1L
                         }
 
-                        // For the user object, either parse it or reconstruct from existing data
                         val user = when {
                             jsonObject.has("user") -> {
                                 val userObject = jsonObject.getJSONObject("user")
@@ -264,7 +245,6 @@ fun PickupAddressScreen(
                                 )
                             }
                             else -> {
-                                // If no user object, create one with just the ID
                                 User(
                                     id = userId.takeIf { it != -1L },
                                     email = "",
@@ -296,13 +276,11 @@ fun PickupAddressScreen(
 
                         Log.e(TAG, "HTTP Error $responseCode (attempt $attempt): $errorResponse")
 
-                        // Don't retry for client errors (4xx)
                         if (responseCode in 400..499) {
                             Log.e(TAG, "Client error, not retrying")
                             return@withContext null
                         }
 
-                        // Retry for server errors (5xx) and other issues
                         if (attempt < maxRetries) {
                             val delay = baseDelay * attempt
                             Log.d(TAG, "Retrying in ${delay}ms...")
@@ -341,7 +319,6 @@ fun PickupAddressScreen(
             } catch (e: Exception) {
                 Log.e(TAG, "Unexpected error on attempt $attempt", e)
 
-                // For unexpected errors, only retry if it's not the last attempt
                 if (attempt < maxRetries && (e is java.io.IOException || e is javax.net.ssl.SSLException)) {
                     val delay = baseDelay * attempt
                     Log.d(TAG, "Unexpected error, retrying in ${delay}ms...")
@@ -356,7 +333,6 @@ fun PickupAddressScreen(
         return@withContext null
     }
 
-    // Improved SSL configuration
     fun configureSSLForDevelopment(httpsConnection: HttpsURLConnection) {
         try {
             val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
@@ -365,22 +341,20 @@ fun PickupAddressScreen(
                 override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
             })
 
-            val sslContext = SSLContext.getInstance("TLS") // Use TLS instead of SSL
+            val sslContext = SSLContext.getInstance("TLS")
             sslContext.init(null, trustAllCerts, java.security.SecureRandom())
             httpsConnection.sslSocketFactory = sslContext.socketFactory
             httpsConnection.hostnameVerifier = HostnameVerifier { _, _ -> true }
 
-            // Additional SSL settings
             httpsConnection.setRequestProperty("User-Agent", "Android-App")
 
             Log.d("PickupAddressScreen", "SSL configured for development")
         } catch (e: Exception) {
             Log.e("PickupAddressScreen", "Error configuring SSL", e)
-            throw e // Rethrow to handle SSL configuration failures
+            throw e
         }
     }
 
-    // Also update the fetchUserData function with similar improvements
     suspend fun fetchUserData(email: String): User? = withContext(Dispatchers.IO) {
         var attempt = 0
         val maxRetries = 2
@@ -388,7 +362,7 @@ fun PickupAddressScreen(
         while (attempt < maxRetries) {
             try {
                 attempt++
-                val url = URL("https://10.0.2.2:8443/api/users/email/$email")
+                val url = URL("https://licenta-backend.westeurope.cloudapp.azure.com:8443/api/users/email/$email")
                 Log.d(TAG, "Fetching user data from: $url (attempt $attempt)")
 
                 val connection = url.openConnection() as HttpURLConnection
@@ -399,8 +373,8 @@ fun PickupAddressScreen(
 
                 connection.apply {
                     requestMethod = "GET"
-                    connectTimeout = 20000  // 20 seconds
-                    readTimeout = 20000     // 20 seconds
+                    connectTimeout = 20000
+                    readTimeout = 20000
                     setRequestProperty("Accept", "application/json")
                     setRequestProperty("Connection", "close")
                     useCaches = false
@@ -451,9 +425,7 @@ fun PickupAddressScreen(
         }
         return@withContext null
     }
-    // Function to fetch user data (same as in HomeScreen)
 
-    // Function to handle pickup confirmation
     fun handlePickupConfirmation() {
         val currentUser = user
         val sackSizeInt = sackSize.toIntOrNull()
@@ -488,9 +460,7 @@ fun PickupAddressScreen(
                 val pickupResponse = submitPickupRequest(pickupRequest)
 
                 if (pickupResponse != null) {
-                    // Navigate to loading screen with pickup ID
                     navController.navigate("pickup_loading_screen/${pickupResponse.id}") {
-                        // Clear the back stack so user can't go back to this screen
                         popUpTo("pickup_address_screen") { inclusive = true }
                     }
                 } else {
@@ -505,7 +475,6 @@ fun PickupAddressScreen(
         }
     }
 
-    // Map properties
     val mapProperties by remember(hasLocationPermission) {
         mutableStateOf(
             MapProperties(
@@ -516,7 +485,6 @@ fun PickupAddressScreen(
         )
     }
 
-    // UI settings
     val uiSettings by remember {
         mutableStateOf(
             MapUiSettings(
@@ -527,14 +495,11 @@ fun PickupAddressScreen(
         )
     }
 
-    // Camera position state
     val cameraPositionState = rememberCameraPositionState {
         position = CameraPosition.fromLatLngZoom(defaultLocation, 15f)
     }
 
-    // Initial setup
     LaunchedEffect(Unit) {
-        // Update permission state
         val hasFineLocationPermission = ContextCompat.checkSelfPermission(
             context,
             Manifest.permission.ACCESS_FINE_LOCATION
@@ -547,7 +512,6 @@ fun PickupAddressScreen(
 
         hasLocationPermission = hasFineLocationPermission || hasCoarseLocationPermission
 
-        // Check if location is enabled
         isLocationEnabled = isLocationEnabled(context)
 
         Log.d(TAG, "Initial check - Permission: $hasLocationPermission, Location enabled: $isLocationEnabled")
@@ -559,7 +523,6 @@ fun PickupAddressScreen(
                 { isLoading -> isLoadingLocation = isLoading },
                 { location ->
                     deviceLocation = location
-                    // Get address from coordinates
                     location?.let { getAddressFromLocation(context, it) { address ->
                         if (address != null) {
                             currentAddress = address
@@ -573,7 +536,6 @@ fun PickupAddressScreen(
             showPermissionDialog = true
         }
 
-        // Fetch user data
         authViewModel.userProfile.collect { userProfile ->
             if (userProfile != null && user == null) {
                 val userData = fetchUserData(userProfile.email ?: "")
@@ -582,7 +544,6 @@ fun PickupAddressScreen(
         }
     }
 
-    // Move camera when device location is obtained
     LaunchedEffect(deviceLocation) {
         deviceLocation?.let { location ->
             Log.d(TAG, "Moving camera to location: $location")
@@ -592,7 +553,6 @@ fun PickupAddressScreen(
         }
     }
 
-    // Location permission dialog
     if (showPermissionDialog) {
         AlertDialog(
             onDismissRequest = { showPermissionDialog = false },
@@ -601,7 +561,6 @@ fun PickupAddressScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        // Request both permissions
                         locationPermissionLauncher.launch(
                             arrayOf(
                                 Manifest.permission.ACCESS_FINE_LOCATION,
@@ -624,7 +583,6 @@ fun PickupAddressScreen(
         )
     }
 
-    // Location services dialog
     if (showLocationServicesDialog) {
         AlertDialog(
             onDismissRequest = { showLocationServicesDialog = false },
@@ -633,7 +591,6 @@ fun PickupAddressScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        // Open location settings
                         val intent = Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
                         context.startActivity(intent)
                         showLocationServicesDialog = false
@@ -652,7 +609,6 @@ fun PickupAddressScreen(
         )
     }
 
-    // Submit error dialog
     if (submitError != null) {
         AlertDialog(
             onDismissRequest = { submitError = null },
@@ -688,7 +644,7 @@ fun PickupAddressScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Google Maps Implementation (same as before)
+
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -701,7 +657,6 @@ fun PickupAddressScreen(
                     properties = mapProperties,
                     uiSettings = uiSettings,
                     onMapLoaded = {
-                        // Refresh location when map is loaded if we don't have it yet
                         if (hasLocationPermission && isLocationEnabled && deviceLocation == null && !isLoadingLocation) {
                             fetchLocation(
                                 context,
@@ -709,7 +664,6 @@ fun PickupAddressScreen(
                                 { isLoading -> isLoadingLocation = isLoading },
                                 { location ->
                                     deviceLocation = location
-                                    // Get address from coordinates
                                     location?.let { getAddressFromLocation(context, it) { address ->
                                         if (address != null) {
                                             currentAddress = address
@@ -720,7 +674,6 @@ fun PickupAddressScreen(
                         }
                     }
                 ) {
-                    // Only draw marker if we have a location
                     deviceLocation?.let { location ->
                         Marker(
                             state = MarkerState(position = location),
@@ -729,7 +682,6 @@ fun PickupAddressScreen(
                     }
                 }
 
-                // Show loading indicator if currently fetching location
                 if (isLoadingLocation) {
                     Box(
                         modifier = Modifier.fillMaxSize(),
@@ -739,7 +691,6 @@ fun PickupAddressScreen(
                     }
                 }
 
-                // Show permission/location services button if needed (same as before)
                 if (!hasLocationPermission || (hasLocationPermission && !isLocationEnabled)) {
                     Box(
                         modifier = Modifier
@@ -763,7 +714,6 @@ fun PickupAddressScreen(
                             )
 
                             if (!hasLocationPermission) {
-                                // Check if we need to show the settings button
                                 val shouldOpenSettings = try {
                                     val activity = context as? android.app.Activity
                                     if (activity != null) {
@@ -780,10 +730,8 @@ fun PickupAddressScreen(
                                 }
 
                                 if (shouldOpenSettings) {
-                                    // If permission was denied permanently, open settings
                                     Button(
                                         onClick = {
-                                            // Open app settings
                                             val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                                                 data = Uri.fromParts("package", context.packageName, null)
                                                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -795,7 +743,6 @@ fun PickupAddressScreen(
                                         Text("Open Settings")
                                     }
                                 } else {
-                                    // Regular permission request
                                     Button(
                                         onClick = {
                                             locationPermissionLauncher.launch(
@@ -811,7 +758,6 @@ fun PickupAddressScreen(
                                     }
                                 }
                             } else if (!isLocationEnabled) {
-                                // Button to open location settings
                                 Button(
                                     onClick = {
                                         val intent = Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
@@ -827,7 +773,6 @@ fun PickupAddressScreen(
                 }
             }
 
-            // Address Confirmation (same as before)
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
@@ -868,7 +813,6 @@ fun PickupAddressScreen(
                         }
                     }
 
-                    // Custom address input (shows when address is not confirmed)
                     if (!isAddressConfirmed) {
                         Spacer(modifier = Modifier.height(8.dp))
 
@@ -892,8 +836,6 @@ fun PickupAddressScreen(
                     }
                 }
             }
-
-            // Sack Size Selection (same as before)
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
@@ -912,7 +854,6 @@ fun PickupAddressScreen(
                     OutlinedTextField(
                         value = sackSize,
                         onValueChange = {
-                            // Only allow numeric input
                             if (it.isEmpty() || it.all { char -> char.isDigit() }) {
                                 sackSize = it
                             }
@@ -925,7 +866,6 @@ fun PickupAddressScreen(
                 }
             }
 
-            // Action Button - Updated to handle API submission
             Spacer(modifier = Modifier.height(16.dp))
 
             Button(
@@ -957,18 +897,15 @@ fun PickupAddressScreen(
                 }
             }
 
-            // Add some space at the bottom for better scrolling experience
             Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }
 
-// Helper function to get address from LatLng (same as before)
 fun getAddressFromLocation(context: Context, location: LatLng, callback: (String?) -> Unit) {
     try {
         val geocoder = Geocoder(context, Locale.getDefault())
 
-        // For Android SDK 33 and above
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             geocoder.getFromLocation(location.latitude, location.longitude, 1) { addresses ->
                 if (addresses.isNotEmpty()) {
@@ -980,7 +917,6 @@ fun getAddressFromLocation(context: Context, location: LatLng, callback: (String
                 }
             }
         } else {
-            // For older Android versions
             @Suppress("DEPRECATION")
             val addresses = geocoder.getFromLocation(location.latitude, location.longitude, 1)
             if (addresses != null && addresses.isNotEmpty()) {

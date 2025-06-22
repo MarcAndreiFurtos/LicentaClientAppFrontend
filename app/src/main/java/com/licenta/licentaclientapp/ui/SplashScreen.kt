@@ -33,14 +33,11 @@ fun SplashScreen(
 ) {
     val context = LocalContext.current
 
-    // Initialize the auth view model
     LaunchedEffect(Unit) {
         authViewModel.initialize(context)
 
-        // Simulate loading for at least 1.5 seconds to show splash
         delay(1500)
 
-        // Check authentication status and navigate accordingly
         val isAuthenticated = authViewModel.isAuthenticated.value
         onAuthenticated(isAuthenticated)
     }
@@ -55,7 +52,6 @@ fun SplashScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            // App Logo (Replace with your own logo resource)
             Image(
                 painter = painterResource(id = R.drawable.premium),
                 contentDescription = "App Logo",
@@ -64,7 +60,6 @@ fun SplashScreen(
                     .padding(bottom = 24.dp)
             )
 
-            // App Name
             Text(
                 text = "Sgr Pickup",
                 fontSize = 28.sp,
@@ -73,7 +68,6 @@ fun SplashScreen(
                 modifier = Modifier.padding(bottom = 48.dp)
             )
 
-            // Loading indicator
             CircularProgressIndicator(
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(48.dp)

@@ -16,8 +16,7 @@ fun AppNavigation(
     authViewModel: AuthViewModel,
     navController: NavHostController = rememberNavController()
 ) {
-    // Create a ViewModel to handle card details if needed
-    val cardViewModel = remember { CardViewModel() }
+
     // Observe authentication state
     val isAuthenticated by authViewModel.isAuthenticated.collectAsState()
     val userProfile by authViewModel.userProfile.collectAsState()
@@ -100,19 +99,6 @@ fun AppNavigation(
             )
         }
 
-        // Debit card screen
-        composable("debit_card_screen") {
-            DebitCardScreen(
-                onBackPressed = { navController.popBackStack() },
-                onSaveCard = { cardDetails ->
-                    // Save card details to the ViewModel
-                    cardViewModel.saveCardDetails(cardDetails)
-                    // Navigate back to previous screen
-                    navController.popBackStack()
-                }
-            )
-        }
-
         // Profile screen
         composable("profile_screen") {
             ProfileScreen(
@@ -125,8 +111,7 @@ fun AppNavigation(
         composable("pickup_address_screen") {
             PickupAddressScreen(
                 navController = navController,
-                authViewModel = authViewModel,
-                cardViewModel = cardViewModel
+                authViewModel = authViewModel
             )
         }
 

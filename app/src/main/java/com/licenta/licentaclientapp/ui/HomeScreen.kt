@@ -46,16 +46,15 @@ import javax.net.ssl.X509TrustManager
 import java.security.cert.X509Certificate
 import javax.net.ssl.HostnameVerifier
 
-// Data class for User
+
 data class User(
-    val id: Long? = null, // Add user ID field
+    val id: Long? = null,
     val email: String,
     val firstName: String,
     val lastName: String,
     val connectedAccount: String
 )
 
-// Configure SSL for development - moved to top level
 private fun configureSSLForDevelopment(httpsConnection: HttpsURLConnection) {
     try {
         val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
@@ -84,13 +83,10 @@ fun HomeScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // Tag for logging
     val TAG = "HomeScreen"
 
-    // Static initial location (San Francisco)
     val defaultLocation = LatLng(37.7749, -122.4194)
 
-    // State variables
     var hasLocationPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(
@@ -113,14 +109,12 @@ fun HomeScreen(
     var deviceLocation by remember { mutableStateOf<LatLng?>(null) }
     var isLoadingLocation by remember { mutableStateOf(false) }
 
-    // Stripe connected account state
     var user by remember { mutableStateOf<User?>(null) }
     var isLoadingUser by remember { mutableStateOf(false) }
     var userLoadError by remember { mutableStateOf<String?>(null) }
     var isLoadingStripe by remember { mutableStateOf(false) }
     var stripeError by remember { mutableStateOf<String?>(null) }
 
-    // Permission launcher
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
@@ -130,11 +124,9 @@ fun HomeScreen(
         hasLocationPermission = fineLocationGranted || coarseLocationGranted
 
         if (hasLocationPermission) {
-            // Check if location services are enabled
             isLocationEnabled = isLocationEnabled(context)
 
             if (isLocationEnabled) {
-                // Both permission and location services are enabled, fetch location
                 fetchLocation(
                     context,
                     scope,
@@ -142,21 +134,18 @@ fun HomeScreen(
                     { location -> deviceLocation = location }
                 )
             } else {
-                // Show dialog to enable location services
                 showLocationServicesDialog = true
             }
         }
     }
 
-    // Function to fetch user data
     suspend fun fetchUserData(email: String): User? = withContext(Dispatchers.IO) {
         try {
-            val url = URL("https://10.0.2.2:8443/api/users/email/$email")
+            val url = URL("https://licenta-backend.westeurope.cloudapp.azure.com:8443/api/users/email/$email")
             Log.d(TAG, "Fetching user data from: $url")
 
             val connection = url.openConnection() as HttpURLConnection
 
-            // Configure SSL if HTTPS
             if (connection is HttpsURLConnection) {
                 configureSSLForDevelopment(connection)
             }
@@ -178,7 +167,7 @@ fun HomeScreen(
 
                 val jsonObject = JSONObject(response)
                 User(
-                    id = jsonObject.optLong("id", -1L).takeIf { it != -1L }, // Handle user ID
+                    id = jsonObject.optLong("id", -1L).takeIf { it != -1L },
                     email = jsonObject.getString("email"),
                     firstName = jsonObject.getString("firstName"),
                     lastName = jsonObject.getString("lastName"),
@@ -194,12 +183,9 @@ fun HomeScreen(
         }
     }
 
-    // Function to initiate Stripe Connect
-    // Function to initiate Stripe Connect
     suspend fun initiateStripeConnect(userId: Long): String? = withContext(Dispatchers.IO) {
         try {
-            // Step 1: POST to create Stripe account
-            val postUrl = URL("https://10.0.2.2:8443/api/stripe/$userId")
+            val postUrl = URL("https://licenta-backend.westeurope.cloudapp.azure.com:8443/api/stripe/$userId")
             Log.d(TAG, "Creating Stripe account: $postUrl")
 
             val postConnection = postUrl.openConnection() as HttpURLConnection
@@ -221,17 +207,14 @@ fun HomeScreen(
             Log.d(TAG, "Stripe POST Response code: $postResponseCode")
 
             if (postResponseCode == HttpURLConnection.HTTP_OK) {
-                // Read the account ID from the first call
                 val accountReader = BufferedReader(InputStreamReader(postConnection.inputStream))
                 val accountIdResponse = accountReader.use { it.readText() }
                 Log.d(TAG, "Stripe account ID response: $accountIdResponse")
 
-                // Clean the account ID (remove quotes if it's a quoted string)
                 val accountId = accountIdResponse.trim().removeSurrounding("\"")
                 Log.d(TAG, "Stripe account ID: $accountId")
 
-                // Step 2: PUT to get the account link using the account ID
-                val putUrl = URL("https://10.0.2.2:8443/api/stripe/$userId")
+                val putUrl = URL("https://licenta-backend.westeurope.cloudapp.azure.com:8443/api/stripe/$userId")
                 Log.d(TAG, "Getting Stripe account link with PUT: $putUrl")
 
                 val putConnection = putUrl.openConnection() as HttpURLConnection
@@ -240,10 +223,9 @@ fun HomeScreen(
                     configureSSLForDevelopment(putConnection)
                 }
 
-                // Create JSON payload for PUT request body
                 val jsonPayload = JSONObject().apply {
-                    put("returnUrl", "https://connect.stripe.com/hosted/setup/c/complete") // Replace with your actual domain
-                    put("refreshUrl", "https://connect.stripe.com/hosted/setup/c/complete") // Replace with your actual domain
+                    put("returnUrl", "https://connect.stripe.com/hosted/setup/c/complete")
+                    put("refreshUrl", "https://connect.stripe.com/hosted/setup/c/complete")
                 }
 
                 putConnection.apply {
@@ -255,7 +237,6 @@ fun HomeScreen(
                     doOutput = true
                 }
 
-                // Write JSON payload to PUT request
                 val writer = OutputStreamWriter(putConnection.outputStream)
                 writer.write(jsonPayload.toString())
                 writer.flush()
@@ -269,18 +250,17 @@ fun HomeScreen(
                     val response = reader.use { it.readText() }
                     Log.d(TAG, "Stripe link response: $response")
 
-                    // Handle the response from the second call (should be the onboarding URL)
+
                     return@withContext try {
-                        // Try to parse as JSON object first
+
                         val jsonObject = JSONObject(response)
                         jsonObject.optString("url", null)
                     } catch (e: org.json.JSONException) {
-                        // If it's not a JSON object, treat it as a plain URL string
+
                         Log.d(TAG, "Response is not JSON, treating as plain URL string")
 
                         val cleanResponse = response.trim().removeSurrounding("\"")
 
-                        // Check if it looks like a valid URL
                         if (cleanResponse.startsWith("http")) {
                             cleanResponse
                         } else {
@@ -306,7 +286,6 @@ fun HomeScreen(
         }
     }
 
-    // Function to handle Add Connected Account button click
     fun handleAddConnectedAccount() {
         val currentUser = user
         if (currentUser?.id == null) {
@@ -322,12 +301,9 @@ fun HomeScreen(
                 val stripeUrl = initiateStripeConnect(currentUser.id)
 
                 if (stripeUrl != null) {
-                    // Open Stripe Connect URL in browser
                     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(stripeUrl))
                     context.startActivity(intent)
 
-                    // Optionally refresh user data after some time
-                    // This might be handled better with a callback or webhook
                 } else {
                     stripeError = "Failed to initiate Stripe Connect. Please try again."
                 }
@@ -340,7 +316,6 @@ fun HomeScreen(
         }
     }
 
-    // Map properties
     val mapProperties by remember(hasLocationPermission) {
         mutableStateOf(
             MapProperties(
@@ -351,7 +326,6 @@ fun HomeScreen(
         )
     }
 
-    // UI settings
     val uiSettings by remember {
         mutableStateOf(
             MapUiSettings(
@@ -362,14 +336,11 @@ fun HomeScreen(
         )
     }
 
-    // Camera position state
     val cameraPositionState = rememberCameraPositionState {
         position = CameraPosition.fromLatLngZoom(defaultLocation, 10f)
     }
 
-    // Initial setup
     LaunchedEffect(Unit) {
-        // Update permission state
         val hasFineLocationPermission = ContextCompat.checkSelfPermission(
             context,
             Manifest.permission.ACCESS_FINE_LOCATION
@@ -382,7 +353,6 @@ fun HomeScreen(
 
         hasLocationPermission = hasFineLocationPermission || hasCoarseLocationPermission
 
-        // Check if location is enabled
         isLocationEnabled = isLocationEnabled(context)
 
         Log.d(TAG, "Initial check - Permission: $hasLocationPermission, Location enabled: $isLocationEnabled")
@@ -400,7 +370,6 @@ fun HomeScreen(
             showPermissionDialog = true
         }
 
-        // Fetch user data
         authViewModel.userProfile.collect { userProfile ->
             if (userProfile != null && user == null && !isLoadingUser) {
                 isLoadingUser = true
@@ -417,7 +386,6 @@ fun HomeScreen(
         }
     }
 
-    // Move camera when device location is obtained
     LaunchedEffect(deviceLocation) {
         deviceLocation?.let { location ->
             Log.d(TAG, "Moving camera to location: $location")
@@ -427,7 +395,6 @@ fun HomeScreen(
         }
     }
 
-    // Location permission dialog
     if (showPermissionDialog) {
         AlertDialog(
             onDismissRequest = { showPermissionDialog = false },
@@ -436,7 +403,6 @@ fun HomeScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        // Request both permissions
                         locationPermissionLauncher.launch(
                             arrayOf(
                                 Manifest.permission.ACCESS_FINE_LOCATION,
@@ -459,7 +425,6 @@ fun HomeScreen(
         )
     }
 
-    // Location services dialog
     if (showLocationServicesDialog) {
         AlertDialog(
             onDismissRequest = { showLocationServicesDialog = false },
@@ -487,7 +452,6 @@ fun HomeScreen(
         )
     }
 
-    // Stripe error dialog
     if (stripeError != null) {
         AlertDialog(
             onDismissRequest = { stripeError = null },
@@ -524,10 +488,8 @@ fun HomeScreen(
                 .background(Color.White)
                 .padding(paddingValues)
         ) {
-            // Updated to use our clickable LocationSearchBar
             LocationSearchBar(navController)
 
-            // Replace SavedAddresses with StripeConnectedAccount
             StripeConnectedAccount(
                 user = user,
                 isLoading = isLoadingUser,
@@ -544,14 +506,12 @@ fun HomeScreen(
                     .fillMaxSize()
                     .padding(top = 8.dp)
             ) {
-                // Map content
                 GoogleMap(
                     modifier = Modifier.fillMaxSize(),
                     cameraPositionState = cameraPositionState,
                     properties = mapProperties,
                     uiSettings = uiSettings,
                     onMapLoaded = {
-                        // Refresh location when map is loaded if we don't have it yet
                         if (hasLocationPermission && isLocationEnabled && deviceLocation == null && !isLoadingLocation) {
                             fetchLocation(
                                 context,
@@ -562,7 +522,6 @@ fun HomeScreen(
                         }
                     }
                 ) {
-                    // Only draw marker if we have a location
                     deviceLocation?.let { location ->
                         Marker(
                             state = MarkerState(position = location),
@@ -571,7 +530,6 @@ fun HomeScreen(
                     }
                 }
 
-                // Show loading indicator if currently fetching location
                 if (isLoadingLocation) {
                     Box(
                         modifier = Modifier.fillMaxSize(),
@@ -581,7 +539,6 @@ fun HomeScreen(
                     }
                 }
 
-                // Show permission/location services button if needed
                 if (!hasLocationPermission || (hasLocationPermission && !isLocationEnabled)) {
                     Box(
                         modifier = Modifier
@@ -605,7 +562,6 @@ fun HomeScreen(
                             )
 
                             if (!hasLocationPermission) {
-                                // Check if we need to show the settings button
                                 val shouldOpenSettings = try {
                                     val activity = context as? android.app.Activity
                                     if (activity != null) {
@@ -622,10 +578,8 @@ fun HomeScreen(
                                 }
 
                                 if (shouldOpenSettings) {
-                                    // If permission was denied permanently, open settings
                                     Button(
                                         onClick = {
-                                            // Open app settings
                                             val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                                                 data = Uri.fromParts("package", context.packageName, null)
                                                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -637,7 +591,6 @@ fun HomeScreen(
                                         Text("Open Settings")
                                     }
                                 } else {
-                                    // Regular permission request
                                     Button(
                                         onClick = {
                                             locationPermissionLauncher.launch(
@@ -653,7 +606,6 @@ fun HomeScreen(
                                     }
                                 }
                             } else if (!isLocationEnabled) {
-                                // Button to open location settings
                                 Button(
                                     onClick = {
                                         val intent = Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
@@ -760,7 +712,7 @@ fun StripeConnectedAccount(
                                     Icon(
                                         imageVector = Icons.Default.CheckCircle,
                                         contentDescription = "Connected",
-                                        tint = Color(0xFF4CAF50), // Green color
+                                        tint = Color(0xFF4CAF50),
                                         modifier = Modifier.size(16.dp)
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
@@ -823,7 +775,6 @@ fun TopBar(onLogout: () -> Unit, navController: NavController) {
             fontWeight = FontWeight.Bold
         )
 
-        // Add menu button with dropdown
         Box {
             IconButton(onClick = { showMenu = true }) {
                 Icon(

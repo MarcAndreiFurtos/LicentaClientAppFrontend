@@ -50,7 +50,6 @@ import javax.net.ssl.X509TrustManager
 import java.security.cert.X509Certificate
 import javax.net.ssl.HostnameVerifier
 
-// Data classes
 data class PickupStatus(
     val id: Long,
     val status: String
@@ -63,11 +62,10 @@ data class EtaResponse(
     val pickupLocation: LatLng?
 )
 
-// Updated data class to handle driver address instead of coordinates
 data class SgrPickupData(
     val id: Long,
     val status: String,
-    val driverLocation: String?, // Changed from driverLatitude/driverLongitude
+    val driverLocation: String?,
     val pickupLatitude: Double?,
     val pickupLongitude: Double?,
     val pickupLocation: String? = null,
@@ -77,7 +75,6 @@ data class SgrPickupData(
     val cardId: Long? = null
 )
 
-// DTO for payment request
 data class SgrPickupDto(
     val driverLocation: String ,
     val pickupLocation: String ,
@@ -87,14 +84,12 @@ data class SgrPickupDto(
     val cardId: Long
 )
 
-// Add this data class to store geocoded results
 data class GeocodedLocation(
     val address: String,
     val latitude: Double,
     val longitude: Double
 )
 
-// Configure SSL for development
 private fun configureSSLForDevelopment(httpsConnection: HttpsURLConnection) {
     try {
         val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
@@ -124,7 +119,6 @@ fun PickupLoadingScreen(
     val scope = rememberCoroutineScope()
     val TAG = "PickupTrackingScreen"
 
-    // Location services
     val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
     var userLocation by remember { mutableStateOf<LatLng?>(null) }
     var hasLocationPermission by remember {
@@ -136,31 +130,26 @@ fun PickupLoadingScreen(
         )
     }
 
-    // Add geocoding function
     suspend fun geocodeAddress(address: String): LatLng? = withContext(Dispatchers.IO) {
         try {
             Log.d(TAG, "🌍 Geocoding address: $address")
 
-            // Using Android's Geocoder (requires API key in manifest)
             val geocoder = android.location.Geocoder(context, java.util.Locale.getDefault())
 
             @Suppress("DEPRECATION")
             val addresses =
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-                    // For API 33+, use the new async method
                     var result: List<android.location.Address>? = null
                     geocoder.getFromLocationName(address, 1) { addressList ->
                         result = addressList
                     }
-                    // Wait for result (in real implementation, you might want to use proper async handling)
                     var attempts = 0
-                    while (result == null && attempts < 50) { // Wait up to 5 seconds
+                    while (result == null && attempts < 50) {
                         delay(100)
                         attempts++
                     }
                     result
                 } else {
-                    // For older APIs, use the deprecated synchronous method
                     geocoder.getFromLocationName(address, 1)
                 }
 
@@ -179,7 +168,6 @@ fun PickupLoadingScreen(
         }
     }
 
-    // Alternative geocoding using Google Maps API (if you have an API key)
     suspend fun geocodeAddressWithGoogleAPI(address: String, apiKey: String): LatLng? =
         withContext(Dispatchers.IO) {
             var connection: HttpURLConnection? = null
@@ -230,7 +218,6 @@ fun PickupLoadingScreen(
         }
 
 
-    // Function to get user location
     fun getUserLocation(locationClient: FusedLocationProviderClient) {
         try {
             if (ContextCompat.checkSelfPermission(
@@ -255,46 +242,38 @@ fun PickupLoadingScreen(
         }
     }
 
-    // Permission launcher
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         hasLocationPermission = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
                 permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
         if (hasLocationPermission) {
-            // Get user location after permission is granted
             getUserLocation(fusedLocationClient)
         }
     }
 
-    // State management
     var pickupStatus by remember { mutableStateOf<PickupStatus?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var statusCheckCount by remember { mutableStateOf(0) }
     var isPolling by remember { mutableStateOf(true) }
 
-    // ETA and location data
     var etaData by remember { mutableStateOf<EtaResponse?>(null) }
     var sgrPickupData by remember { mutableStateOf<SgrPickupData?>(null) }
     var isLocationPolling by remember { mutableStateOf(false) }
 
-    // Map state
     var googleMap by remember { mutableStateOf<GoogleMap?>(null) }
     var driverMarker by remember { mutableStateOf<Marker?>(null) }
     var pickupMarker by remember { mutableStateOf<Marker?>(null) }
     var userMarker by remember { mutableStateOf<Marker?>(null) }
 
-    // New state variables for address-based driver location
     var driverLocationCoords by remember { mutableStateOf<LatLng?>(null) }
     var isGeocodingDriver by remember { mutableStateOf(false) }
     var geocodingError by remember { mutableStateOf<String?>(null) }
 
-    // Payment state
     var isProcessingPayment by remember { mutableStateOf(false) }
     var paymentError by remember { mutableStateOf<String?>(null) }
 
-    // Request location permissions on launch
     LaunchedEffect(Unit) {
         if (!hasLocationPermission) {
             locationPermissionLauncher.launch(
@@ -308,11 +287,10 @@ fun PickupLoadingScreen(
         }
     }
 
-    // Function to fetch pickup status
     suspend fun fetchPickupStatus(id: Long): PickupStatus? = withContext(Dispatchers.IO) {
         var connection: HttpURLConnection? = null
         try {
-            val url = URL("https://10.0.2.2:8443/api/sgrPickup/$id/status")
+            val url = URL("https://licenta-backend.westeurope.cloudapp.azure.com:8443/api/sgrPickup/$id/status")
             Log.d(TAG, "Fetching pickup status from: $url")
 
             connection = url.openConnection() as HttpURLConnection
@@ -334,7 +312,7 @@ fun PickupLoadingScreen(
             if (responseCode == HttpURLConnection.HTTP_OK) {
                 val reader = BufferedReader(InputStreamReader(connection.inputStream))
                 val statusString = reader.use { it.readText() }.trim()
-                    .removePrefix("\"").removeSuffix("\"") // Remove quotes if present
+                    .removePrefix("\"").removeSuffix("\"")
                 Log.d(TAG, "Status string received: '$statusString'")
 
                 PickupStatus(
@@ -353,11 +331,10 @@ fun PickupLoadingScreen(
         }
     }
 
-    // Updated function to fetch full sgrPickup data with userId extracted from user object
     suspend fun fetchSgrPickupData(id: Long): SgrPickupData? = withContext(Dispatchers.IO) {
         var connection: HttpURLConnection? = null
         try {
-            val url = URL("https://10.0.2.2:8443/api/sgrPickup/$id")
+            val url = URL("https://licenta-backend.westeurope.cloudapp.azure.com:8443/api/sgrPickup/$id")
             Log.d(TAG, "🌐 Fetching sgrPickup data from: $url")
 
             connection = url.openConnection() as HttpURLConnection
@@ -385,7 +362,7 @@ fun PickupLoadingScreen(
                     try {
                         val jsonObject = JSONObject(response)
 
-                        // Extract userId from user object if it exists
+
                         val userId = if (jsonObject.has("user") && !jsonObject.isNull("user")) {
                             val userObject = jsonObject.getJSONObject("user")
                             if (userObject.has("id") && !userObject.isNull("id")) {
@@ -395,7 +372,6 @@ fun PickupLoadingScreen(
                                 null
                             }
                         } else {
-                            // Fallback to direct userId field if user object doesn't exist
                             if (jsonObject.has("userId") && !jsonObject.isNull("userId")) {
                                 jsonObject.getLong("userId")
                             } else {
@@ -404,7 +380,6 @@ fun PickupLoadingScreen(
                             }
                         }
 
-                        // Extract driverId from driver object if it exists
                         val driverId =
                             if (jsonObject.has("driver") && !jsonObject.isNull("driver")) {
                                 val driverObject = jsonObject.getJSONObject("driver")
@@ -415,7 +390,6 @@ fun PickupLoadingScreen(
                                     null
                                 }
                             } else {
-                                // Fallback to direct driverId field if driver object doesn't exist
                                 if (jsonObject.has("driverId") && !jsonObject.isNull("driverId")) {
                                     jsonObject.getLong("driverId")
                                 } else {
@@ -452,8 +426,8 @@ fun PickupLoadingScreen(
                                 )
                             )
                                 jsonObject.getInt("sackSizeLiters") else null,
-                            userId = userId, // Use the extracted userId
-                            driverId = driverId, // Use the extracted driverId
+                            userId = userId,
+                            driverId = driverId,
                             cardId = if (jsonObject.has("cardId") && !jsonObject.isNull("cardId"))
                                 jsonObject.getLong("cardId") else null
                         )
@@ -483,19 +457,13 @@ fun PickupLoadingScreen(
         }
     }
 
-
-    // Updated function to fetch full sgrPickup data with all fields needed for payment
-
-
-    // Function to send payment request
     suspend fun sendPaymentRequest(pickupData: SgrPickupData): Boolean =
         withContext(Dispatchers.IO) {
             var connection: HttpURLConnection? = null
             try {
-                val url = URL("https://10.0.2.2:8443/api/sgrPickup/${pickupData.id}/pay")
+                val url = URL("https://licenta-backend.westeurope.cloudapp.azure.com:8443/api/sgrPickup/${pickupData.id}/pay")
                 Log.d(TAG, "💳 Sending payment request to: $url")
 
-                // Create the DTO object
                 val paymentDto = SgrPickupDto(
                     driverLocation = pickupData.driverLocation ?: "",
                     pickupLocation = pickupData.pickupLocation ?: "",
@@ -505,7 +473,6 @@ fun PickupLoadingScreen(
                     cardId = pickupData.cardId ?: 0
                 )
 
-                // Convert to JSON
                 val jsonPayload = JSONObject().apply {
                     put("driverLocation", paymentDto.driverLocation)
                     put("pickupLocation", paymentDto.pickupLocation)
@@ -532,7 +499,6 @@ fun PickupLoadingScreen(
                     doOutput = true
                 }
 
-                // Write the JSON payload
                 val outputWriter = OutputStreamWriter(connection.outputStream)
                 outputWriter.write(jsonPayload)
                 outputWriter.flush()
@@ -546,7 +512,6 @@ fun PickupLoadingScreen(
                     true
                 } else {
                     Log.e(TAG, "❌ Payment request failed: HTTP $responseCode")
-                    // Try to read error response
                     val errorReader = BufferedReader(
                         InputStreamReader(
                             connection.errorStream ?: connection.inputStream
@@ -570,8 +535,8 @@ fun PickupLoadingScreen(
             EtaResponse(
                 estimatedTime = if (jsonObject.has("estimatedTime")) jsonObject.getString("estimatedTime") else null,
                 distance = if (jsonObject.has("distance")) jsonObject.getString("distance") else null,
-                driverLocation = null, // Will be populated from sgrPickupData
-                pickupLocation = null   // Will be populated from sgrPickupData
+                driverLocation = null,
+                pickupLocation = null
             )
         } catch (e: Exception) {
             Log.e("PickupTrackingScreen", "Error parsing ETA JSON", e)
@@ -579,11 +544,10 @@ fun PickupLoadingScreen(
         }
     }
 
-    // Updated fetchEtaData function
     suspend fun fetchEtaData(id: Long): EtaResponse? = withContext(Dispatchers.IO) {
         var connection: HttpURLConnection? = null
         try {
-            val url = URL("https://10.0.2.2:8443/api/sgrPickup/$id/eta")
+            val url = URL("https://licenta-backend.westeurope.cloudapp.azure.com:8443/api/sgrPickup/$id/eta")
             Log.d(TAG, "🌐 Fetching ETA data from: $url")
 
             connection = url.openConnection() as HttpURLConnection
@@ -631,7 +595,6 @@ fun PickupLoadingScreen(
         }
     }
 
-    // Updated map marker effect to handle address-based driver location
     LaunchedEffect(sgrPickupData, userLocation, googleMap) {
         Log.d(
             TAG,
@@ -639,7 +602,6 @@ fun PickupLoadingScreen(
         )
 
         if (googleMap != null) {
-            // Update user location marker
             userLocation?.let { userLoc ->
                 if (userMarker == null) {
                     userMarker = googleMap!!.addMarker(
@@ -658,15 +620,12 @@ fun PickupLoadingScreen(
                 }
             }
 
-            // Update markers based on sgrPickupData
             sgrPickupData?.let { pickup ->
                 Log.d(TAG, "📊 Processing pickup data - status: ${pickup.status}")
                 Log.d(TAG, "📍 Driver address: '${pickup.driverLocation}'")
                 Log.d(TAG, "📍 Pickup location: ${pickup.pickupLatitude}, ${pickup.pickupLongitude}")
 
-                // Handle driver location (geocode address if available)
                 if (!pickup.driverLocation.isNullOrBlank()) {
-                    // Launch geocoding in a separate coroutine
                     scope.launch {
                         isGeocodingDriver = true
                         geocodingError = null
@@ -678,7 +637,6 @@ fun PickupLoadingScreen(
                         if (driverCoords != null) {
                             driverLocationCoords = driverCoords
 
-                            // Update driver marker on main thread
                             withContext(Dispatchers.Main) {
                                 if (driverMarker == null) {
                                     driverMarker = googleMap!!.addMarker(
@@ -716,13 +674,11 @@ fun PickupLoadingScreen(
                     }
                 } else {
                     Log.d(TAG, "⚠️ Driver address not available yet")
-                    // Remove driver marker if address is not available
                     driverMarker?.remove()
                     driverMarker = null
                     driverLocationCoords = null
                 }
 
-                // Update pickup location marker
                 if (pickup.pickupLatitude != null && pickup.pickupLongitude != null) {
                     val pickupLoc = LatLng(pickup.pickupLatitude, pickup.pickupLongitude)
                     if (pickupMarker == null) {
@@ -737,7 +693,6 @@ fun PickupLoadingScreen(
                             "📦 Pickup marker added at: ${pickupLoc.latitude}, ${pickupLoc.longitude}"
                         )
                     } else {
-                        // Pickup location shouldn't change, but update just in case
                         pickupMarker!!.position = pickupLoc
                         Log.d(
                             TAG,
@@ -747,7 +702,6 @@ fun PickupLoadingScreen(
                 }
             } ?: Log.d(TAG, "⚠️ No sgrPickupData available yet")
 
-            // Adjust camera to show all available markers
             val markersToShow = mutableListOf<LatLng>()
             userLocation?.let { markersToShow.add(it) }
             driverLocationCoords?.let { markersToShow.add(it) }
@@ -778,7 +732,6 @@ fun PickupLoadingScreen(
         }
     }
 
-// Status polling effect with payment integration and navigation
     LaunchedEffect(pickupId) {
         scope.launch {
             while (isPolling) {
@@ -794,7 +747,6 @@ fun PickupLoadingScreen(
                         error = null
                         paymentError = null
 
-                        // Start location polling when status becomes in_progress
                         Log.d(
                             TAG,
                             "Current status: '${status.status}', lowercase: '${status.status.lowercase()}', isLocationPolling: $isLocationPolling"
@@ -807,14 +759,12 @@ fun PickupLoadingScreen(
                             )
                         }
 
-                        // Check if pickup is completed or has a final status
                         when (status.status.lowercase()) {
                             "completed", "delivered", "finished", "cancelled", "canceled" -> {
                                 Log.d(TAG, "🏁 Pickup completed with status: ${status.status}")
                                 isPolling = false
                                 isLocationPolling = false
 
-                                // Trigger payment process for completed pickups
                                 if (status.status.lowercase() in listOf(
                                         "completed",
                                         "delivered",
@@ -835,7 +785,6 @@ fun PickupLoadingScreen(
                                                 TAG,
                                                 "✅ Payment processed successfully - navigating to completed screen"
                                             )
-                                            // Navigate to PickupCompletedScreen after successful payment
                                             navController.navigate("pickup_completed_screen/$pickupId") {
                                                 popUpTo("pickup_loading_screen/$pickupId") {
                                                     inclusive = true
@@ -867,15 +816,13 @@ fun PickupLoadingScreen(
                     Log.e(TAG, "Exception in status polling", e)
                 }
 
-                // Continue polling if still active
                 if (isPolling && isActive) {
-                    delay(5000) // Poll every 5 seconds
+                    delay(5000)
                 }
             }
         }
     }
 
-// Location polling effect
     LaunchedEffect(isLocationPolling) {
         if (isLocationPolling) {
             Log.d(TAG, "🌍 Starting location polling loop")
@@ -884,7 +831,6 @@ fun PickupLoadingScreen(
                     try {
                         Log.d(TAG, "🔄 Fetching location data...")
 
-                        // Fetch both ETA and pickup data
                         val eta = fetchEtaData(pickupId)
                         val pickup = fetchSgrPickupData(pickupId)
 
@@ -900,7 +846,6 @@ fun PickupLoadingScreen(
                                 "📊 Pickup data updated: status=${pickup.status}, driverLocation=${pickup.driverLocation}"
                             )
 
-                            // Check if status changed to completed during location polling
                             if (pickup.status.lowercase() in listOf(
                                     "completed",
                                     "delivered",
@@ -913,7 +858,6 @@ fun PickupLoadingScreen(
                                 isLocationPolling = false
                                 isPolling = false
 
-                                // Process payment for completed pickups
                                 if (pickup.status.lowercase() in listOf(
                                         "completed",
                                         "delivered",
@@ -933,7 +877,6 @@ fun PickupLoadingScreen(
                                             TAG,
                                             "✅ Payment processed successfully - navigating to completed screen"
                                         )
-                                        // Navigate to PickupCompletedScreen after successful payment
                                         navController.navigate("pickup_completed_screen/$pickupId") {
                                             popUpTo("pickup_loading_screen/$pickupId") {
                                                 inclusive = true
@@ -951,9 +894,8 @@ fun PickupLoadingScreen(
                         Log.e(TAG, "💥 Exception in location polling", e)
                     }
 
-                    // Wait before next poll
                     if (isLocationPolling && isActive) {
-                        delay(10000) // Poll every 10 seconds for location data
+                        delay(10000)
                     }
                 }
             }
@@ -962,11 +904,10 @@ fun PickupLoadingScreen(
         }
     }
 
-// UI
+
     Box(
         modifier = Modifier.fillMaxSize()
     ) {
-        // Full-screen Map
         if (hasLocationPermission) {
             AndroidView(
                 factory = { context ->
@@ -991,7 +932,6 @@ fun PickupLoadingScreen(
                 modifier = Modifier.fillMaxSize()
             )
         } else {
-            // Location permission required screen
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -1030,16 +970,14 @@ fun PickupLoadingScreen(
             }
         }
 
-        // Bottom Drawer/Overlay
         var isDrawerExpanded by remember { mutableStateOf(false) }
 
-        // Draggable bottom sheet/drawer
+
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
         ) {
-            // Drawer handle/header (always visible)
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1051,7 +989,6 @@ fun PickupLoadingScreen(
                 Column(
                     modifier = Modifier.padding(16.dp)
                 ) {
-                    // Drag handle
                     Box(
                         modifier = Modifier
                             .width(40.dp)
@@ -1065,7 +1002,6 @@ fun PickupLoadingScreen(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Pickup ID and Status (always visible)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -1086,7 +1022,6 @@ fun PickupLoadingScreen(
                             )
                         }
 
-                        // Status indicator
                         when {
                             isLoading -> {
                                 CircularProgressIndicator(
@@ -1107,10 +1042,10 @@ fun PickupLoadingScreen(
                             pickupStatus != null -> {
                                 val status = pickupStatus!!.status
                                 val statusColor = when (status.lowercase()) {
-                                    "pending" -> Color(0xFFFF9800) // Orange
-                                    "in_progress" -> Color(0xFF2196F3) // Blue
-                                    "completed", "delivered", "finished" -> Color(0xFF4CAF50) // Green
-                                    "cancelled", "canceled" -> Color(0xFFF44336) // Red
+                                    "pending" -> Color(0xFFFF9800)
+                                    "in_progress" -> Color(0xFF2196F3)
+                                    "completed", "delivered", "finished" -> Color(0xFF4CAF50)
+                                    "cancelled", "canceled" -> Color(0xFFF44336)
                                     else -> MaterialTheme.colorScheme.onSurface
                                 }
 
@@ -1124,7 +1059,6 @@ fun PickupLoadingScreen(
                         }
                     }
 
-                    // ETA info (always visible when available)
                     if (isLocationPolling && etaData != null) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Row(
@@ -1154,7 +1088,6 @@ fun PickupLoadingScreen(
                         }
                     }
 
-                    // Expand/collapse indicator
                     Spacer(modifier = Modifier.height(8.dp))
                     Icon(
                         imageVector = if (isDrawerExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
@@ -1165,7 +1098,6 @@ fun PickupLoadingScreen(
                 }
             }
 
-            // Expandable content
             androidx.compose.animation.AnimatedVisibility(
                 visible = isDrawerExpanded,
                 enter = androidx.compose.animation.expandVertically(),
@@ -1181,10 +1113,9 @@ fun PickupLoadingScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(16.dp)
-                            .heightIn(max = 400.dp) // Limit max height
-                            .verticalScroll(rememberScrollState()) // Make scrollable if content is too long
+                            .heightIn(max = 400.dp)
+                            .verticalScroll(rememberScrollState())
                     ) {
-                        // Detailed Status Card
                         Card(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(8.dp),
@@ -1227,7 +1158,6 @@ fun PickupLoadingScreen(
                             }
                         }
 
-                        // ETA Details (when expanded)
                         if (isLocationPolling && etaData != null) {
                             Spacer(modifier = Modifier.height(12.dp))
                             Card(
@@ -1263,7 +1193,6 @@ fun PickupLoadingScreen(
                             }
                         }
 
-                        // Geocoding status
                         if (isGeocodingDriver) {
                             Spacer(modifier = Modifier.height(12.dp))
                             Card(
@@ -1288,7 +1217,6 @@ fun PickupLoadingScreen(
                             }
                         }
 
-                        // Geocoding error
                         geocodingError?.let { error ->
                             Spacer(modifier = Modifier.height(12.dp))
                             Card(
@@ -1305,7 +1233,6 @@ fun PickupLoadingScreen(
                             }
                         }
 
-                        // Payment processing indicator
                         if (isProcessingPayment) {
                             Spacer(modifier = Modifier.height(12.dp))
                             Card(
@@ -1331,7 +1258,6 @@ fun PickupLoadingScreen(
                             }
                         }
 
-                        // Payment error
                         paymentError?.let { error ->
                             Spacer(modifier = Modifier.height(12.dp))
                             Card(
@@ -1355,7 +1281,6 @@ fun PickupLoadingScreen(
                                         style = MaterialTheme.typography.bodySmall
                                     )
 
-                                    // Retry payment button
                                     Spacer(modifier = Modifier.height(8.dp))
                                     Button(
                                         onClick = {
@@ -1385,7 +1310,6 @@ fun PickupLoadingScreen(
                             }
                         }
 
-                        // Back button
                         Spacer(modifier = Modifier.height(16.dp))
                         Button(
                             onClick = { navController.popBackStack() },
